@@ -65,22 +65,50 @@ def test_parser_has_default_url() -> None:
     assert args.url == MODULE.DEFAULT_ANIBIS_NE_SALE_URL
 
 
-def test_resolve_cache_file_fetch_called_when_not_skip(monkeypatch) -> None:
+def test_parser_default_max_pages_is_one() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args([])
+    assert args.max_pages == 1
+
+
+def test_validate_args_max_pages_rejects_too_high() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--max-pages", "11"])
+    try:
+        MODULE._validate_args(args)
+    except ValueError as exc:
+        assert "--max-pages must be <= 10" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for max-pages > 10")
+
+
+def test_build_anibis_page_urls_generates_page_1_and_2() -> None:
+    urls = MODULE._build_anibis_page_urls(
+        "https://www.anibis.ch/fr/q/test?sorting=newest&page=1",
+        2,
+    )
+    assert len(urls) == 2
+    assert "page=1" in urls[0]
+    assert "page=2" in urls[1]
+
+
+def test_fetch_pages_fetch_called_when_not_skip(monkeypatch) -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(["https://example.test/listing"])
 
-    captured: dict[str, str] = {}
+    captured_urls: list[str] = []
 
     async def fake_fetch_html_to_cache(**kwargs):
-        captured["url"] = kwargs["url"]
+        captured_urls.append(kwargs["url"])
         return SimpleNamespace(status_code=200, size_bytes=123, file_path=Path("dummy.html"))
 
     monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
 
-    cache_path = asyncio.run(MODULE._resolve_cache_file(args))
+    cache_paths, fetched_pages = asyncio.run(MODULE._fetch_pages(args))
 
-    assert captured["url"] == "https://example.test/listing"
-    assert cache_path == Path("dummy.html")
+    assert captured_urls == ["https://example.test/listing?page=1"]
+    assert cache_paths == [Path("dummy.html")]
+    assert fetched_pages == 1
 
 
 def test_run_passes_max_listings_to_filter(monkeypatch) -> None:
@@ -98,8 +126,8 @@ def test_run_passes_max_listings_to_filter(monkeypatch) -> None:
 
     captured: dict[str, int] = {}
 
-    async def fake_resolve_cache_file(_args):
-        return Path("tests/fixtures/html/anibis_sample_listing_page.html")
+    async def fake_fetch_pages(_args):
+        return [Path("tests/fixtures/html/anibis_sample_listing_page.html")], 0
 
     async def fake_collect_and_normalize(_scraper):
         listings = [_listing(1), _listing(2)]
@@ -128,7 +156,7 @@ def test_run_passes_max_listings_to_filter(monkeypatch) -> None:
             errors=[],
         )
 
-    monkeypatch.setattr(MODULE, "_resolve_cache_file", fake_resolve_cache_file)
+    monkeypatch.setattr(MODULE, "_fetch_pages", fake_fetch_pages)
     monkeypatch.setattr(MODULE, "collect_and_normalize", fake_collect_and_normalize)
     monkeypatch.setattr(MODULE, "filter_collection_batch", fake_filter_collection_batch)
     monkeypatch.setattr(MODULE, "persist_collection_batch", fake_persist_collection_batch)
@@ -149,8 +177,8 @@ def test_run_with_exports_uses_quality_report(monkeypatch, tmp_path: Path) -> No
         ]
     )
 
-    async def fake_resolve_cache_file(_args):
-        return Path("tests/fixtures/html/anibis_sample_listing_page.html")
+    async def fake_fetch_pages(_args):
+        return [Path("tests/fixtures/html/anibis_sample_listing_page.html")], 0
 
     async def fake_collect_and_normalize(_scraper):
         listings = [_listing(1)]
@@ -184,7 +212,7 @@ def test_run_with_exports_uses_quality_report(monkeypatch, tmp_path: Path) -> No
     async def fake_export_quality_report_csv(_session, output_path):
         return SimpleNamespace(name="QUALITY_REPORT", path=output_path, row_count=1)
 
-    monkeypatch.setattr(MODULE, "_resolve_cache_file", fake_resolve_cache_file)
+    monkeypatch.setattr(MODULE, "_fetch_pages", fake_fetch_pages)
     monkeypatch.setattr(MODULE, "collect_and_normalize", fake_collect_and_normalize)
     monkeypatch.setattr(MODULE, "filter_collection_batch", fake_filter_collection_batch)
     monkeypatch.setattr(MODULE, "persist_collection_batch", fake_persist_collection_batch)

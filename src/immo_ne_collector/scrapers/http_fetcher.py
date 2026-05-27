@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,8 +29,12 @@ def build_cache_filename(url: str, *, fetched_at: datetime | None = None) -> str
     domain = (parsed.netloc or "unknown").replace(":", "_").replace(".", "_")
     path = parsed.path.strip("/") or "root"
     path_slug = "_".join(part for part in path.split("/") if part)[:80]
+    query_suffix = ""
+    if parsed.query:
+        query_hash = hashlib.sha1(parsed.query.encode("utf-8")).hexdigest()[:8]
+        query_suffix = f"_q{query_hash}"
     stamp = (fetched_at or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}_{domain}_{path_slug}.html"
+    return f"{stamp}_{domain}_{path_slug}{query_suffix}.html"
 
 
 async def _default_http_get(url: str) -> httpx.Response:

@@ -40,6 +40,22 @@ EXPORT_HEADERS = [
     "sitn_url",
 ]
 
+DEDUPLICATION_HEADERS = [
+    "property_id",
+    "sources",
+    "source_urls",
+    "title",
+    "city",
+    "postal_code",
+    "price_chf",
+    "rooms",
+    "living_area_m2",
+    "source_count",
+    "merge_status",
+    "deduplication_reason",
+    "deduplication_score",
+]
+
 
 @dataclass(frozen=True)
 class ExportFileResult:
@@ -132,6 +148,49 @@ def property_to_export_row(property_row: Property) -> dict[str, str]:
         "sitn_bien_fonds": _to_text(property_row.sitn_bien_fonds),
         "sitn_owner_name": _to_text(property_row.sitn_owner_name),
         "sitn_url": _to_text(property_row.sitn_url),
+    }
+
+
+def property_to_deduplication_row(property_row: Property) -> dict[str, str]:
+    source_urls_from_rows = [listing.url for listing in property_row.listings if listing.url]
+    merged_source_urls: list[str] = []
+    for url in [*property_row.source_urls, *source_urls_from_rows]:
+        if url not in merged_source_urls:
+            merged_source_urls.append(url)
+
+    source_names_from_rows = [listing.source for listing in property_row.listings if listing.source]
+    merged_sources: list[str] = []
+    for source in [*property_row.sources, *source_names_from_rows]:
+        if source not in merged_sources:
+            merged_sources.append(source)
+
+    source_count = len(merged_sources)
+    merge_status = "merged" if source_count > 1 else "single_source"
+
+    dedup_reason = ""
+    dedup_score = ""
+    if isinstance(property_row.raw_data, dict):
+        raw_reason = property_row.raw_data.get("deduplication_reason")
+        raw_score = property_row.raw_data.get("deduplication_score")
+        if isinstance(raw_reason, str):
+            dedup_reason = raw_reason
+        if raw_score is not None:
+            dedup_score = str(raw_score)
+
+    return {
+        "property_id": str(property_row.id),
+        "sources": json.dumps(merged_sources, ensure_ascii=False),
+        "source_urls": json.dumps(merged_source_urls, ensure_ascii=False),
+        "title": _to_text(property_row.title),
+        "city": _to_text(property_row.city),
+        "postal_code": _to_text(property_row.postal_code),
+        "price_chf": _to_text(property_row.price_chf),
+        "rooms": _to_text(property_row.rooms),
+        "living_area_m2": _to_text(property_row.living_area_m2),
+        "source_count": str(source_count),
+        "merge_status": merge_status,
+        "deduplication_reason": dedup_reason,
+        "deduplication_score": dedup_score,
     }
 
 
@@ -272,6 +331,25 @@ async def export_locations_csv(session: AsyncSession, output_path: Path) -> Expo
     )
 
 
+async def export_deduplication_report_csv(
+    session: AsyncSession,
+    output_path: Path,
+) -> ExportFileResult:
+    query = (
+        select(Property)
+        .options(selectinload(Property.listings))
+        .order_by(Property.first_seen_at.desc())
+    )
+    properties = await _fetch_properties(session, query)
+    rows = [property_to_deduplication_row(row) for row in properties]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as file_obj:
+        writer = csv.DictWriter(file_obj, fieldnames=DEDUPLICATION_HEADERS)
+        writer.writeheader()
+        writer.writerows(rows)
+    return ExportFileResult(name="DEDUPLICATION_REPORT", path=output_path, row_count=len(rows))
+
+
 async def export_all_csv(
     *,
     output_dir: Path | None = None,
@@ -290,7 +368,11 @@ async def export_all_csv(
         inactifs = await export_inactifs_csv(active_session, export_dir / "inactifs.csv")
         ventes = await export_ventes_csv(active_session, export_dir / "ventes.csv")
         locations = await export_locations_csv(active_session, export_dir / "locations.csv")
-        return [master, nouveaux, modifies, inactifs, ventes, locations]
+        dedup_report = await export_deduplication_report_csv(
+            active_session,
+            export_dir / "deduplication_report.csv",
+        )
+        return [master, nouveaux, modifies, inactifs, ventes, locations, dedup_report]
     finally:
         if owns_session and active_session is not None:
             await active_session.close()

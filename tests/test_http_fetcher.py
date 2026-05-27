@@ -22,6 +22,20 @@ def test_build_cache_filename_is_stable_and_html() -> None:
     assert "www_anibis_ch" in name
 
 
+def test_build_cache_filename_changes_when_query_changes() -> None:
+    fetched_at = datetime(2026, 5, 18, 12, 0, 0, tzinfo=UTC)
+    page_1 = build_cache_filename(
+        "https://www.anibis.ch/fr/immobilier?region=ne&page=1",
+        fetched_at=fetched_at,
+    )
+    page_2 = build_cache_filename(
+        "https://www.anibis.ch/fr/immobilier?region=ne&page=2",
+        fetched_at=fetched_at,
+    )
+    assert page_1 != page_2
+    assert "_q" in page_1 and "_q" in page_2
+
+
 @pytest.mark.asyncio
 async def test_fetch_html_to_cache_with_mocked_http_client(tmp_path: Path) -> None:
     async def fake_get(url: str) -> httpx.Response:

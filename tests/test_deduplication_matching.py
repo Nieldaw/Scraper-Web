@@ -66,3 +66,24 @@ def test_decide_property_match_ambiguous_when_data_is_close_but_insufficient() -
 
     assert decision.decision == MatchOutcome.AMBIGUOUS
     assert decision.matched_property_id is None
+
+
+def test_decide_property_match_no_match_when_price_and_area_very_different() -> None:
+    listing = ListingCandidate(
+        title="Appartement 4.5 pieces a Neuchatel",
+        city="Neuchatel",
+        property_type="appartement",
+        price_chf=Decimal("850000"),
+        living_area_m2=Decimal("110"),
+    )
+    candidate = ListingCandidate(
+        title="Appartement 4.5 pieces a Neuchatel",
+        city="Neuchatel",
+        property_type="appartement",
+        price_chf=Decimal("1600000"),
+        living_area_m2=Decimal("260"),
+    )
+
+    decision = decide_property_match(listing, [(uuid4(), candidate)])
+    assert decision.decision in {MatchOutcome.NO_MATCH, MatchOutcome.AMBIGUOUS}
+    assert decision.matched_property_id is None

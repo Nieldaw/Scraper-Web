@@ -34,8 +34,25 @@ def is_canton_ne_listing(url: str, city: str | None, postal_code: str | None) ->
     if "/neuchatel/" in normalized_url:
         return True
 
+    if "dans-neuchatel" in normalized_url or "-neuchatel," in normalized_url:
+        return True
+
+    if "neuchatel-ne" in normalized_url or "canton-neuchatel" in normalized_url:
+        return True
+
     if "/berne/" in normalized_url or "/bern/" in normalized_url:
         return False
+
+    for keyword in NE_CITY_KEYWORDS:
+        normalized_keyword = normalize_text(keyword)
+        slug_keyword = normalized_keyword.replace(" ", "-")
+        compact_keyword = normalized_keyword.replace(" ", "")
+        if (
+            normalized_keyword in normalized_url
+            or slug_keyword in normalized_url
+            or compact_keyword in normalized_url
+        ):
+            return True
 
     if normalized_city.endswith(" ne"):
         return True
