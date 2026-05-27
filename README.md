@@ -79,6 +79,31 @@ make format
 make collect-once
 ```
 
+## Collecte Anibis vente NE
+
+Commande rapide:
+
+```bash
+python3 scripts/collect_anibis_sale_ne.py --max-listings 5
+```
+
+Commande complete:
+
+```bash
+python3 scripts/collect_anibis_sale_ne.py
+```
+
+Utilisation cache local:
+
+```bash
+python3 scripts/collect_anibis_sale_ne.py --skip-fetch --cache-path data/cache/html/NOM_DU_FICHIER.html
+```
+
+Fichiers generes:
+
+- `data/exports/ventes.csv`
+- `data/exports/quality_report.csv`
+
 ## Structure
 
 ```text

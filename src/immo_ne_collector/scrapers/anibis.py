@@ -1,5 +1,6 @@
 import hashlib
 import re
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -37,6 +38,7 @@ class AnibisCachedHtmlScraper(BaseScraper):
 
     def parse_html(self, html_text: str) -> list[RawListing]:
         soup = BeautifulSoup(html_text, "html.parser")
+        page_context = self._detect_page_transaction_context(soup, html_text)
         cards = soup.select("article.anibis-card[data-item-id]")
         strategy = "fixture_cards"
         if not cards:
@@ -62,6 +64,7 @@ class AnibisCachedHtmlScraper(BaseScraper):
                 title=title,
                 description=description,
                 card_text=" ".join(self._span_texts(card)),
+                page_context=page_context,
             )
 
             listings.append(
@@ -83,6 +86,7 @@ class AnibisCachedHtmlScraper(BaseScraper):
                         "card_index": idx,
                         "parser": "anibis_cached_html",
                         "strategy": strategy,
+                        "page_transaction_context": page_context,
                         "transaction_type": transaction_type,
                     },
                     fetched_at=fetched_at,
@@ -217,6 +221,45 @@ class AnibisCachedHtmlScraper(BaseScraper):
     def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
         return any(keyword in text for keyword in keywords)
 
+    @staticmethod
+    def _normalize_text(value: str | None) -> str:
+        text = (value or "").strip().lower()
+        text = text.replace("à", "a")
+        decomposed = unicodedata.normalize("NFKD", text)
+        return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+    def _detect_page_transaction_context(self, soup: BeautifulSoup, _html_text: str) -> str:
+        title_text = soup.title.get_text(" ", strip=True) if soup.title else ""
+        canonical_link = soup.select_one("link[rel='canonical']")
+        canonical_href = canonical_link.get("href", "").strip() if canonical_link else ""
+        page_text = self._normalize_text(
+            " ".join(
+                [
+                    title_text,
+                    canonical_href,
+                    str(self.html_path),
+                ]
+            )
+        )
+
+        has_buy = (
+            "acheter" in page_text
+            or "kaufen" in page_text
+            or "acquistare" in page_text
+            or bool(re.search(r"pricetype.{0,20}buy", page_text))
+        )
+        has_rent = (
+            "louer" in page_text
+            or "mieten" in page_text
+            or "affitt" in page_text
+            or bool(re.search(r"pricetype.{0,20}rent", page_text))
+        )
+        if has_buy and not has_rent:
+            return "sale"
+        if has_rent and not has_buy:
+            return "rent"
+        return "unknown"
+
     def _classify_transaction_type(
         self,
         *,
@@ -224,11 +267,11 @@ class AnibisCachedHtmlScraper(BaseScraper):
         title: str | None,
         description: str | None,
         card_text: str,
+        page_context: str,
     ) -> str:
-        combined = " ".join(
-            part for part in [href, title or "", description or "", card_text] if part
-        ).lower()
-        combined = combined.replace("à", "a")
+        combined = self._normalize_text(
+            " ".join(part for part in [href, title or "", description or "", card_text] if part)
+        )
 
         rent_keywords = (
             "location",
@@ -258,4 +301,8 @@ class AnibisCachedHtmlScraper(BaseScraper):
             return "rent"
         if is_sale:
             return "sale"
+        if page_context == "sale":
+            return "sale"
+        if page_context == "rent":
+            return "rent"
         return "unknown"

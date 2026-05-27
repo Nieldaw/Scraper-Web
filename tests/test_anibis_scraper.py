@@ -119,6 +119,39 @@ def test_anibis_parser_classifies_unknown_when_not_enough_info() -> None:
     assert listings[0].raw_data.get("transaction_type") == "unknown"
 
 
+def test_anibis_parser_buy_page_context_promotes_unknown_to_sale() -> None:
+    scraper = AnibisCachedHtmlScraper(html_path=FIXTURE_PATH)
+    html = (
+        "<html><head>"
+        "<title>Immobilier - Acheter - Neuchâtel</title>"
+        "<link rel='canonical' href='https://www.anibis.ch/fr/q/immobilier-neuchatel-appartements-maisons-acheter/test'>"
+        "</head><body>"
+        "<div data-private-srp-listing-item-id='9010'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/appartements/bien-neutre/9010'>Bien neutre</a></h2>"
+        "<span>Neuchâtel, 2000</span>"
+        "</div>"
+        "</body></html>"
+    )
+    listings = scraper.parse_html(html)
+    assert listings[0].raw_data.get("transaction_type") == "sale"
+
+
+def test_anibis_parser_rent_stays_rent_on_buy_page_context() -> None:
+    scraper = AnibisCachedHtmlScraper(html_path=FIXTURE_PATH)
+    html = (
+        "<html><head>"
+        "<title>Immobilier - Acheter - Neuchâtel</title>"
+        "</head><body>"
+        "<div data-private-srp-listing-item-id='9011'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/appartements/location-courte/9011'>À louer studio meublé</a></h2>"
+        "<span>1 100.- par mois</span>"
+        "</div>"
+        "</body></html>"
+    )
+    listings = scraper.parse_html(html)
+    assert listings[0].raw_data.get("transaction_type") == "rent"
+
+
 def test_anibis_parser_generates_stable_source_listing_id_from_url(tmp_path: Path) -> None:
     file_path = tmp_path / "stable-id.html"
     html = (

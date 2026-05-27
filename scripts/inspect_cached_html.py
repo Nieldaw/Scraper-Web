@@ -16,6 +16,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
+from immo_ne_collector.scrapers.anibis_utils import is_canton_ne_listing
 from immo_ne_collector.services.normalization import normalize_raw_listing
 from immo_ne_collector.services.sitn import assess_sitn_eligibility
 
@@ -120,6 +121,13 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.anibis.ch") 
     sitn_eligible_count = sum(
         1 for item in normalized if assess_sitn_eligibility(item.address_full, item.city).eligible
     )
+    kept_canton_ne = []
+    excluded_canton_ne = []
+    for item in normalized:
+        if is_canton_ne_listing(item.url, item.city, item.postal_code):
+            kept_canton_ne.append(item)
+        else:
+            excluded_canton_ne.append(item)
 
     print("Quality diagnostics:")
     print(f"- Total listings detected: {len(raw_listings)}")
@@ -133,6 +141,12 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.anibis.ch") 
     print(f"- with postal code: {with_postal}")
     print(f"- with complete address: {with_complete_address}")
     print(f"- SITN eligible: {sitn_eligible_count}")
+    print(f"- kept by canton NE: {len(kept_canton_ne)}")
+    print(f"- excluded out of canton: {len(excluded_canton_ne)}")
+    if excluded_canton_ne:
+        print("- examples excluded:")
+        for listing in excluded_canton_ne[:5]:
+            print(f"  - {listing.url}")
 
     return 0
 

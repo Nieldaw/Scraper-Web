@@ -11,11 +11,15 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
+from immo_ne_collector.services.anibis_filters import (
+    VALID_CANTONS,
+    VALID_TRANSACTION_TYPES,
+    filter_collection_batch,
+    resolve_canton,
+)
 from immo_ne_collector.services.collection import CollectionBatch
 from immo_ne_collector.services.collection import collect_and_normalize
 from immo_ne_collector.services.persistence import persist_collection_batch
-
-VALID_TRANSACTION_TYPES = ("sale", "rent", "unknown", "all")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,31 +40,20 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=VALID_TRANSACTION_TYPES,
         help="Filtre de type de transaction: sale|rent|unknown|all (défaut: all).",
     )
-    return parser
-
-
-def _filter_batch(
-    batch: CollectionBatch,
-    *,
-    max_listings: int | None,
-    transaction_type: str,
-) -> tuple[CollectionBatch, int]:
-    original_count = len(batch.listings)
-    filtered = batch.listings
-    if transaction_type != "all":
-        filtered = [
-            listing
-            for listing in filtered
-            if listing.raw_data.get("transaction_type", "unknown") == transaction_type
-        ]
-
-    if max_listings is not None:
-        filtered = filtered[:max_listings]
-
-    return (
-        batch.model_copy(update={"listings": filtered, "collected_count": len(filtered)}),
-        original_count,
+    parser.add_argument(
+        "--canton",
+        type=str,
+        default=None,
+        choices=VALID_CANTONS,
+        help="Filtre canton (MVP: NE).",
     )
+    parser.add_argument(
+        "--region",
+        type=str,
+        default=None,
+        help="Alias simple de région (MVP: neuchatel).",
+    )
+    return parser
 
 
 async def _run(
@@ -68,6 +61,7 @@ async def _run(
     *,
     max_listings: int | None,
     transaction_type: str,
+    canton: str | None,
 ) -> int:
     scraper = AnibisCachedHtmlScraper(
         html_path=file_path,
@@ -79,15 +73,30 @@ async def _run(
         print(f"Parse error: {exc}")
         return 1
 
-    batch, raw_detected_count = _filter_batch(
+    batch, stats = filter_collection_batch(
         batch,
         max_listings=max_listings,
         transaction_type=transaction_type,
+        canton=canton,
     )
     result = await persist_collection_batch(batch)
     print(f"Cached HTML: {file_path}")
-    print(f"Detected before filters: {raw_detected_count}")
+    print(f"Detected before filters: {stats.detected_total}")
+    print(
+        "Detected transaction types: "
+        f"sale={stats.transaction_counts['sale']}, "
+        f"rent={stats.transaction_counts['rent']}, "
+        f"unknown={stats.transaction_counts['unknown']}"
+    )
     print(f"Filter transaction_type: {transaction_type}")
+    print(f"Filter canton: {canton if canton else 'none'}")
+    if canton == "NE":
+        print(f"Kept by canton NE: {stats.kept_canton_count}")
+        print(f"Excluded out of canton: {stats.excluded_canton_count}")
+        if stats.excluded_examples:
+            print("Examples excluded:")
+            for url in stats.excluded_examples:
+                print(f"- {url}")
     print(f"Filter max_listings: {max_listings if max_listings is not None else 'none'}")
     print(f"DailyRun ID: {result.daily_run_id}")
     print(f"Collected: {result.collected_count}")
@@ -108,12 +117,18 @@ def main() -> None:
     if args.max_listings is not None and args.max_listings < 1:
         print("--max-listings must be >= 1")
         raise SystemExit(2)
+    try:
+        canton = resolve_canton(canton=args.canton, region=args.region)
+    except ValueError as exc:
+        print(str(exc))
+        raise SystemExit(2) from exc
     raise SystemExit(
         asyncio.run(
             _run(
                 args.cache_file,
                 max_listings=args.max_listings,
                 transaction_type=args.transaction_type,
+                canton=canton,
             )
         )
     )

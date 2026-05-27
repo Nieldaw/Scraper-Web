@@ -11,7 +11,7 @@ __pycache__/
 htmlcov/
 .DS_Store
 *.sqlite3
-exports/
+/exports/
 data/cache/html/*.html
 !data/cache/html/.gitkeep
 data/exports/*.csv
