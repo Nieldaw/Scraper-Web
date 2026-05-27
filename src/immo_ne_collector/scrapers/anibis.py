@@ -55,13 +55,21 @@ class AnibisCachedHtmlScraper(BaseScraper):
             source_listing_id, href = self._extract_id_and_href(card)
             if not href:
                 raise AnibisParseError(f"Missing listing URL in card #{idx}")
+            title = self._extract_title(card)
+            description = self._extract_description(card)
+            transaction_type = self._classify_transaction_type(
+                href=href,
+                title=title,
+                description=description,
+                card_text=" ".join(self._span_texts(card)),
+            )
 
             listings.append(
                 RawListing(
                     source=self.source,
                     source_listing_id=source_listing_id or self._derive_stable_id(href),
                     url=urljoin(self.base_url, href),
-                    title=self._extract_title(card),
+                    title=title,
                     property_type=self._extract_property_type(card, href),
                     price_raw=self._extract_price(card),
                     rooms_raw=self._extract_rooms(card),
@@ -69,12 +77,13 @@ class AnibisCachedHtmlScraper(BaseScraper):
                     address_raw=self._extract_address(card),
                     city_raw=self._extract_city(card),
                     postal_code_raw=self._extract_postal_code(card),
-                    description_raw=self._extract_description(card),
+                    description_raw=description,
                     raw_data={
                         "fixture_or_cache_path": str(self.html_path),
                         "card_index": idx,
                         "parser": "anibis_cached_html",
                         "strategy": strategy,
+                        "transaction_type": transaction_type,
                     },
                     fetched_at=fetched_at,
                 )
@@ -203,3 +212,50 @@ class AnibisCachedHtmlScraper(BaseScraper):
             if match:
                 return match.group(0)
         return None
+
+    @staticmethod
+    def _contains_any(text: str, keywords: tuple[str, ...]) -> bool:
+        return any(keyword in text for keyword in keywords)
+
+    def _classify_transaction_type(
+        self,
+        *,
+        href: str,
+        title: str | None,
+        description: str | None,
+        card_text: str,
+    ) -> str:
+        combined = " ".join(
+            part for part in [href, title or "", description or "", card_text] if part
+        ).lower()
+        combined = combined.replace("à", "a")
+
+        rent_keywords = (
+            "location",
+            "a louer",
+            "louer",
+            "sous-louer",
+            "sous louer",
+            "sous-location",
+            "sous location",
+            "loyer",
+            "par mois",
+            "/mois",
+            "mois.",
+        )
+        sale_keywords = (
+            "a vendre",
+            "vendre",
+            "vente",
+            "prix de vente",
+        )
+
+        is_rent = self._contains_any(combined, rent_keywords)
+        is_sale = self._contains_any(combined, sale_keywords)
+        if is_rent and is_sale:
+            return "unknown"
+        if is_rent:
+            return "rent"
+        if is_sale:
+            return "sale"
+        return "unknown"

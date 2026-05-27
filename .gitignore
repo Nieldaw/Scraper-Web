@@ -12,5 +12,9 @@ htmlcov/
 .DS_Store
 *.sqlite3
 exports/
+data/cache/html/*.html
+!data/cache/html/.gitkeep
+data/exports/*.csv
+!data/exports/.gitkeep
 playwright-report/
 test-results/

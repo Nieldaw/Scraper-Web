@@ -68,6 +68,55 @@ def test_anibis_parser_handles_missing_fields_without_crash(tmp_path: Path) -> N
     assert listing.address_raw is None
     assert listing.city_raw is None
     assert listing.postal_code_raw is None
+    assert listing.raw_data.get("transaction_type") == "unknown"
+
+
+def test_anibis_parser_classifies_rent_keywords() -> None:
+    scraper = AnibisCachedHtmlScraper(html_path=FIXTURE_PATH)
+    html = (
+        "<html><body>"
+        "<div data-private-srp-listing-item-id='9001'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/appartements/studio-location/9001'>"
+        "Studio équipé en location"
+        "</a></h2>"
+        "<span>900.- par mois</span>"
+        "</div>"
+        "</body></html>"
+    )
+    listings = scraper.parse_html(html)
+    assert listings[0].raw_data.get("transaction_type") == "rent"
+
+
+def test_anibis_parser_classifies_sale_keywords() -> None:
+    scraper = AnibisCachedHtmlScraper(html_path=FIXTURE_PATH)
+    html = (
+        "<html><body>"
+        "<div data-private-srp-listing-item-id='9002'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/maisons/maison-a-vendre/9002'>"
+        "Maison à vendre à Peseux"
+        "</a></h2>"
+        "<span>Prix de vente 1 200 000.-</span>"
+        "</div>"
+        "</body></html>"
+    )
+    listings = scraper.parse_html(html)
+    assert listings[0].raw_data.get("transaction_type") == "sale"
+
+
+def test_anibis_parser_classifies_unknown_when_not_enough_info() -> None:
+    scraper = AnibisCachedHtmlScraper(html_path=FIXTURE_PATH)
+    html = (
+        "<html><body>"
+        "<div data-private-srp-listing-item-id='9003'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/appartements/bien-neutre/9003'>"
+        "Bien neutre"
+        "</a></h2>"
+        "<span>Texte sans contexte transaction</span>"
+        "</div>"
+        "</body></html>"
+    )
+    listings = scraper.parse_html(html)
+    assert listings[0].raw_data.get("transaction_type") == "unknown"
 
 
 def test_anibis_parser_generates_stable_source_listing_id_from_url(tmp_path: Path) -> None:

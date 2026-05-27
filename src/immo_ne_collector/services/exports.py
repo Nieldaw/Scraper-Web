@@ -1,10 +1,11 @@
 import csv
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,6 +25,8 @@ EXPORT_HEADERS = [
     "postal_code",
     "sources",
     "source_urls",
+    "transaction_type",
+    "transaction_types",
     "first_seen_at",
     "last_seen_at",
     "last_changed_at",
@@ -55,6 +58,40 @@ def _to_text(value) -> str:
     return "" if value is None else str(value)
 
 
+def _normalized_transaction_type(value: str | None) -> str:
+    cleaned = (value or "").strip().lower()
+    if cleaned in {"sale", "rent", "unknown"}:
+        return cleaned
+    return "unknown"
+
+
+def _extract_transaction_types(property_row: Property) -> list[str]:
+    detected: list[str] = []
+    for listing in property_row.listings:
+        raw_value = None
+        if isinstance(listing.raw_data, dict):
+            raw_value = listing.raw_data.get("transaction_type")
+        tx_type = _normalized_transaction_type(raw_value if isinstance(raw_value, str) else None)
+        if tx_type not in detected:
+            detected.append(tx_type)
+
+    if detected:
+        return detected
+
+    fallback = None
+    if isinstance(property_row.raw_data, dict):
+        fallback = property_row.raw_data.get("transaction_type")
+    return [_normalized_transaction_type(fallback if isinstance(fallback, str) else None)]
+
+
+def _aggregate_transaction_type(transaction_types: list[str]) -> str:
+    if not transaction_types:
+        return "unknown"
+    if len(transaction_types) == 1:
+        return transaction_types[0]
+    return "mixed"
+
+
 def property_to_export_row(property_row: Property) -> dict[str, str]:
     source_urls_from_rows = [listing.url for listing in property_row.listings if listing.url]
     merged_source_urls: list[str] = []
@@ -67,6 +104,8 @@ def property_to_export_row(property_row: Property) -> dict[str, str]:
     for source in [*property_row.sources, *source_names_from_rows]:
         if source not in merged_sources:
             merged_sources.append(source)
+    transaction_types = _extract_transaction_types(property_row)
+    transaction_type = _aggregate_transaction_type(transaction_types)
 
     return {
         "property_id": str(property_row.id),
@@ -80,6 +119,8 @@ def property_to_export_row(property_row: Property) -> dict[str, str]:
         "postal_code": _to_text(property_row.postal_code),
         "sources": json.dumps(merged_sources, ensure_ascii=False),
         "source_urls": json.dumps(merged_source_urls, ensure_ascii=False),
+        "transaction_type": transaction_type,
+        "transaction_types": json.dumps(transaction_types, ensure_ascii=False),
         "first_seen_at": _to_iso(property_row.first_seen_at),
         "last_seen_at": _to_iso(property_row.last_seen_at),
         "last_changed_at": _to_iso(property_row.last_changed_at),
@@ -105,8 +146,11 @@ async def _write_export(
     name: str,
     path: Path,
     query,
+    property_filter: Callable[[Property], bool] | None = None,
 ) -> ExportFileResult:
     properties = await _fetch_properties(session, query)
+    if property_filter is not None:
+        properties = [row for row in properties if property_filter(row)]
     rows = [property_to_export_row(row) for row in properties]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as file_obj:
@@ -117,7 +161,11 @@ async def _write_export(
 
 
 async def export_master_csv(session: AsyncSession, output_path: Path) -> ExportFileResult:
-    query = select(Property).options(selectinload(Property.listings)).order_by(Property.first_seen_at.desc())
+    query = (
+        select(Property)
+        .options(selectinload(Property.listings))
+        .order_by(Property.first_seen_at.desc())
+    )
     return await _write_export(session, name="MASTER", path=output_path, query=query)
 
 
@@ -146,12 +194,22 @@ async def export_modifies_csv(
     window_hours: int | None = None,
 ) -> ExportFileResult:
     settings = get_settings()
-    effective_window = window_hours if window_hours is not None else settings.updated_window_hours
-    cutoff = datetime.now(UTC) - timedelta(hours=effective_window)
+    effective_updated_window = window_hours if window_hours is not None else settings.updated_window_hours
+    updated_cutoff = datetime.now(UTC) - timedelta(hours=effective_updated_window)
+    new_cutoff = datetime.now(UTC) - timedelta(hours=settings.new_window_hours)
     query = (
         select(Property)
         .options(selectinload(Property.listings))
-        .where(Property.last_changed_at.is_not(None), Property.last_changed_at >= cutoff)
+        .where(
+            Property.first_seen_at < new_cutoff,
+            or_(
+                Property.status == PropertyStatus.UPDATED,
+                and_(
+                    Property.last_changed_at.is_not(None),
+                    Property.last_changed_at >= updated_cutoff,
+                ),
+            ),
+        )
         .order_by(Property.last_changed_at.desc())
     )
     return await _write_export(session, name="MODIFIES", path=output_path, query=query)
@@ -164,7 +222,9 @@ async def export_inactifs_csv(
     inactive_after_days: int | None = None,
 ) -> ExportFileResult:
     settings = get_settings()
-    effective_days = inactive_after_days if inactive_after_days is not None else settings.inactive_after_days
+    effective_days = (
+        inactive_after_days if inactive_after_days is not None else settings.inactive_after_days
+    )
     cutoff = datetime.now(UTC) - timedelta(days=effective_days)
     query = (
         select(Property)
@@ -178,6 +238,38 @@ async def export_inactifs_csv(
         .order_by(Property.last_seen_at.asc())
     )
     return await _write_export(session, name="INACTIFS", path=output_path, query=query)
+
+
+async def export_ventes_csv(session: AsyncSession, output_path: Path) -> ExportFileResult:
+    query = (
+        select(Property)
+        .options(selectinload(Property.listings))
+        .order_by(Property.first_seen_at.desc())
+    )
+    return await _write_export(
+        session,
+        name="VENTES",
+        path=output_path,
+        query=query,
+        property_filter=lambda row: _aggregate_transaction_type(_extract_transaction_types(row))
+        == "sale",
+    )
+
+
+async def export_locations_csv(session: AsyncSession, output_path: Path) -> ExportFileResult:
+    query = (
+        select(Property)
+        .options(selectinload(Property.listings))
+        .order_by(Property.first_seen_at.desc())
+    )
+    return await _write_export(
+        session,
+        name="LOCATIONS",
+        path=output_path,
+        query=query,
+        property_filter=lambda row: _aggregate_transaction_type(_extract_transaction_types(row))
+        == "rent",
+    )
 
 
 async def export_all_csv(
@@ -196,7 +288,9 @@ async def export_all_csv(
         nouveaux = await export_nouveaux_csv(active_session, export_dir / "nouveaux.csv")
         modifies = await export_modifies_csv(active_session, export_dir / "modifies.csv")
         inactifs = await export_inactifs_csv(active_session, export_dir / "inactifs.csv")
-        return [master, nouveaux, modifies, inactifs]
+        ventes = await export_ventes_csv(active_session, export_dir / "ventes.csv")
+        locations = await export_locations_csv(active_session, export_dir / "locations.csv")
+        return [master, nouveaux, modifies, inactifs, ventes, locations]
     finally:
         if owns_session and active_session is not None:
             await active_session.close()

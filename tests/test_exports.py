@@ -11,9 +11,11 @@ from immo_ne_collector.models import Property, PropertyStatus, SitnStatus, Sourc
 from immo_ne_collector.services.exports import (
     EXPORT_HEADERS,
     export_inactifs_csv,
+    export_locations_csv,
     export_master_csv,
     export_modifies_csv,
     export_nouveaux_csv,
+    export_ventes_csv,
 )
 
 pytestmark = pytest.mark.db
@@ -29,6 +31,7 @@ async def _create_property_with_listings(
     title: str = "Bien test",
     city: str = "Neuchatel",
     source_names: list[str] | None = None,
+    transaction_types: list[str] | None = None,
 ) -> Property:
     names = source_names or [f"src_{token}_a", f"src_{token}_b"]
     property_row = Property(
@@ -57,6 +60,11 @@ async def _create_property_with_listings(
         await session.flush()
         for index, source in enumerate(names, start=1):
             url = f"https://{source}.local/{token}/{index}"
+            tx_type = (
+                transaction_types[index - 1]
+                if transaction_types and index - 1 < len(transaction_types)
+                else "unknown"
+            )
             session.add(
                 SourceListing(
                     source=source,
@@ -71,7 +79,7 @@ async def _create_property_with_listings(
                     city=city,
                     postal_code="2000",
                     description=f"description {token}",
-                    raw_data={"test": token},
+                    raw_data={"test": token, "transaction_type": tx_type},
                     first_seen_at=first_seen_at,
                     last_seen_at=last_seen_at,
                     collected_at=last_seen_at,
@@ -111,6 +119,8 @@ async def test_export_master_with_single_property_and_multiple_source_listings(t
     source_urls = json.loads(exported["source_urls"])
     assert len(sources) == 2
     assert len(source_urls) == 2
+    assert exported["transaction_type"] == "unknown"
+    assert json.loads(exported["transaction_types"]) == ["unknown"]
 
 
 @pytest.mark.asyncio
@@ -177,7 +187,7 @@ async def test_export_modifies_filters_by_last_changed_at(tmp_path: Path) -> Non
         first_seen_at=now - timedelta(days=10),
         last_seen_at=now - timedelta(days=1),
         last_changed_at=now - timedelta(days=5),
-        status=PropertyStatus.UPDATED,
+        status=PropertyStatus.ACTIVE,
     )
 
     async with AsyncSessionLocal() as session:
@@ -186,6 +196,34 @@ async def test_export_modifies_filters_by_last_changed_at(tmp_path: Path) -> Non
     ids = {item["property_id"] for item in rows}
     assert str(recent.id) in ids
     assert str(old.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_export_modifies_excludes_newly_created_properties(tmp_path: Path) -> None:
+    token_new = f"exp-mod-new-{uuid4().hex[:6]}"
+    token_updated = f"exp-mod-updated-{uuid4().hex[:6]}"
+    now = datetime.now(UTC)
+    newly_created = await _create_property_with_listings(
+        token=token_new,
+        first_seen_at=now - timedelta(hours=2),
+        last_seen_at=now - timedelta(hours=2),
+        last_changed_at=now - timedelta(hours=2),
+        status=PropertyStatus.NEW,
+    )
+    updated = await _create_property_with_listings(
+        token=token_updated,
+        first_seen_at=now - timedelta(days=3),
+        last_seen_at=now - timedelta(hours=1),
+        last_changed_at=now - timedelta(hours=1),
+        status=PropertyStatus.UPDATED,
+    )
+
+    async with AsyncSessionLocal() as session:
+        result = await export_modifies_csv(session, tmp_path / "modifies.csv", window_hours=24)
+    rows = _read_csv(result.path)
+    ids = {item["property_id"] for item in rows}
+    assert str(updated.id) in ids
+    assert str(newly_created.id) not in ids
 
 
 @pytest.mark.asyncio
@@ -248,3 +286,89 @@ async def test_export_csv_is_utf8_encoded(tmp_path: Path) -> None:
     rows = _read_csv(result.path)
     selected = next(item for item in rows if item["property_id"] == str(created.id))
     assert selected["city"] == "La Chaux-de-Fonds"
+
+
+@pytest.mark.asyncio
+async def test_export_master_transaction_type_mixed_when_sources_disagree(tmp_path: Path) -> None:
+    token = f"exp-mixed-{uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    created = await _create_property_with_listings(
+        token=token,
+        first_seen_at=now - timedelta(days=2),
+        last_seen_at=now - timedelta(days=1),
+        last_changed_at=now - timedelta(days=1),
+        status=PropertyStatus.ACTIVE,
+        transaction_types=["rent", "sale"],
+    )
+
+    async with AsyncSessionLocal() as session:
+        result = await export_master_csv(session, tmp_path / "master.csv")
+
+    rows = _read_csv(result.path)
+    selected = next(item for item in rows if item["property_id"] == str(created.id))
+    assert selected["transaction_type"] == "mixed"
+    assert json.loads(selected["transaction_types"]) == ["rent", "sale"]
+
+
+@pytest.mark.asyncio
+async def test_export_ventes_contains_only_sale(tmp_path: Path) -> None:
+    now = datetime.now(UTC)
+    sale_row = await _create_property_with_listings(
+        token=f"exp-sale-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=3),
+        last_seen_at=now - timedelta(days=1),
+        last_changed_at=now - timedelta(days=1),
+        status=PropertyStatus.ACTIVE,
+        transaction_types=["sale"],
+        source_names=[f"sale-src-{uuid4().hex[:6]}"],
+    )
+    await _create_property_with_listings(
+        token=f"exp-rent-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=3),
+        last_seen_at=now - timedelta(days=1),
+        last_changed_at=now - timedelta(days=1),
+        status=PropertyStatus.ACTIVE,
+        transaction_types=["rent"],
+        source_names=[f"rent-src-{uuid4().hex[:6]}"],
+    )
+
+    async with AsyncSessionLocal() as session:
+        result = await export_ventes_csv(session, tmp_path / "ventes.csv")
+
+    rows = _read_csv(result.path)
+    assert rows
+    ids = {row["property_id"] for row in rows}
+    assert str(sale_row.id) in ids
+    assert all(row["transaction_type"] == "sale" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_export_locations_contains_only_rent(tmp_path: Path) -> None:
+    now = datetime.now(UTC)
+    rent_row = await _create_property_with_listings(
+        token=f"exp-rent2-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=3),
+        last_seen_at=now - timedelta(days=1),
+        last_changed_at=now - timedelta(days=1),
+        status=PropertyStatus.ACTIVE,
+        transaction_types=["rent"],
+        source_names=[f"rent2-src-{uuid4().hex[:6]}"],
+    )
+    await _create_property_with_listings(
+        token=f"exp-unknown-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=3),
+        last_seen_at=now - timedelta(days=1),
+        last_changed_at=now - timedelta(days=1),
+        status=PropertyStatus.ACTIVE,
+        transaction_types=["unknown"],
+        source_names=[f"unk-src-{uuid4().hex[:6]}"],
+    )
+
+    async with AsyncSessionLocal() as session:
+        result = await export_locations_csv(session, tmp_path / "locations.csv")
+
+    rows = _read_csv(result.path)
+    assert rows
+    ids = {row["property_id"] for row in rows}
+    assert str(rent_row.id) in ids
+    assert all(row["transaction_type"] == "rent" for row in rows)
