@@ -46,3 +46,6 @@ select = ["E", "F", "I", "B", "UP"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "db: tests that require PostgreSQL and should run with isolated DB tables",
+]

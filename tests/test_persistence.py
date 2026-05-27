@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from immo_ne_collector.db import AsyncSessionLocal, engine
+from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import DailyRun, Property, PropertyStatus, SourceListing
 from immo_ne_collector.scrapers.mock_multisource import CatalogMockScraper, MockListingSeed
 from immo_ne_collector.services.collection import CollectionBatch
@@ -13,6 +13,8 @@ from immo_ne_collector.services.collection import collect_and_normalize
 from immo_ne_collector.services.normalization import NormalizedListing
 from immo_ne_collector.services import persistence as persistence_module
 from immo_ne_collector.services.persistence import persist_collection_batch
+
+pytestmark = pytest.mark.db
 
 
 def _build_batch(
@@ -24,6 +26,9 @@ def _build_batch(
     price_chf: Decimal | None = Decimal("1000000"),
     rooms: Decimal | None = Decimal("4.5"),
     living_area_m2: Decimal | None = Decimal("120"),
+    city: str = "Neuchatel",
+    address_full: str = "Rue du Seyon 12",
+    postal_code: str = "2000",
 ) -> CollectionBatch:
     listing = NormalizedListing(
         source=source,
@@ -34,9 +39,9 @@ def _build_batch(
         price_chf=price_chf,
         rooms=rooms,
         living_area_m2=living_area_m2,
-        address_full="Rue du Seyon 12",
-        city="Neuchatel",
-        postal_code="2000",
+        address_full=address_full,
+        city=city,
+        postal_code=postal_code,
         description=description,
         raw_data={"test": True},
         fetched_at=datetime.now(UTC),
@@ -45,18 +50,22 @@ def _build_batch(
     return CollectionBatch(source=source, collected_count=1, listings=[listing])
 
 
-@pytest.fixture(autouse=True)
-async def _dispose_engine_pool_between_tests() -> None:
-    await engine.dispose()
-    yield
-    await engine.dispose()
-
-
 @pytest.mark.asyncio
 async def test_persistence_inserts_new_listing() -> None:
     source = f"test-persist-{uuid4().hex[:8]}"
-    listing_id = "listing-1"
-    batch = _build_batch(source=source, source_listing_id=listing_id)
+    listing_id = f"listing-{uuid4().hex[:8]}"
+    unique_city = f"UniqueCity-{uuid4().hex[:8]}"
+    unique_address = f"Rue Unique {uuid4().hex[:8]} 99"
+    unique_price = Decimal("9876543")
+    batch = _build_batch(
+        source=source,
+        source_listing_id=listing_id,
+        city=unique_city,
+        address_full=unique_address,
+        postal_code="2999",
+        price_chf=unique_price,
+        title="Appartement test totalement unique",
+    )
 
     result = await persist_collection_batch(batch)
 
@@ -78,7 +87,10 @@ async def test_persistence_inserts_new_listing() -> None:
         property_row = (await session.execute(select(Property).where(Property.id == source_row.property_id))).scalar_one()
 
         assert property_row.status == PropertyStatus.NEW
-        assert property_row.title == "Appartement test"
+        assert property_row.title == "Appartement test totalement unique"
+        assert property_row.city == unique_city
+        assert property_row.address_full == unique_address
+        assert property_row.price_chf == unique_price
 
 
 @pytest.mark.asyncio

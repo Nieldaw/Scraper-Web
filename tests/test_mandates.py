@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from immo_ne_collector.db import AsyncSessionLocal, engine
+from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import Property, PropertyStatus, SearchMandate, SitnStatus
 from immo_ne_collector.services.mandates import (
     MandateCriteria,
@@ -16,12 +16,7 @@ from immo_ne_collector.services.mandates import (
     export_mandate_matches_csv,
 )
 
-
-@pytest.fixture(autouse=True)
-async def _dispose_engine_pool_between_tests() -> None:
-    await engine.dispose()
-    yield
-    await engine.dispose()
+pytestmark = pytest.mark.db
 
 
 async def _insert_property(

@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 
-from immo_ne_collector.db import AsyncSessionLocal, engine
+from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import SourceListing
 from immo_ne_collector.scrapers.static_html import StaticHtmlScraper
 from immo_ne_collector.services.collection import collect_and_normalize
@@ -12,13 +12,6 @@ from immo_ne_collector.services.persistence import persist_collection_batch
 
 
 FIXTURE_PATH = Path("tests/fixtures/html/sample_listing_page.html")
-
-
-@pytest.fixture(autouse=True)
-async def _dispose_engine_pool_between_tests() -> None:
-    await engine.dispose()
-    yield
-    await engine.dispose()
 
 
 def test_fixture_html_exists_and_readable() -> None:
@@ -70,6 +63,7 @@ async def test_pipeline_static_html_to_normalization() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.db
 async def test_pipeline_static_html_to_persistence_db() -> None:
     source = f"test_static_persist_{uuid4().hex[:8]}"
     base_url = f"https://{source}.local"
