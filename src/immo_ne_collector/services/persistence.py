@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from immo_ne_collector.db import AsyncSessionLocal
@@ -346,20 +346,23 @@ async def _persist_collection_batch_in_session(
                 unchanged_count += 1
 
         await session.commit()
-        refreshed_daily_run = await session.get(DailyRun, daily_run_id)
-        if refreshed_daily_run is None:
-            raise RuntimeError(f"DailyRun not found after commit: {daily_run_id}")
-        refreshed_daily_run.finished_at = _now_utc()
-        refreshed_daily_run.status = "SUCCESS"
-        refreshed_daily_run.stats = {
-            "source": batch.source,
-            "collected_count": batch.collected_count,
-            "created_count": created_count,
-            "updated_count": updated_count,
-            "unchanged_count": unchanged_count,
-            "error_count": 0,
-        }
-        refreshed_daily_run.error = None
+        await session.execute(
+            update(DailyRun)
+            .where(DailyRun.id == daily_run_id)
+            .values(
+                finished_at=_now_utc(),
+                status="SUCCESS",
+                stats={
+                    "source": batch.source,
+                    "collected_count": batch.collected_count,
+                    "created_count": created_count,
+                    "updated_count": updated_count,
+                    "unchanged_count": unchanged_count,
+                    "error_count": 0,
+                },
+                error=None,
+            )
+        )
         await session.commit()
 
         return PersistenceResult(
@@ -373,20 +376,24 @@ async def _persist_collection_batch_in_session(
     except Exception as exc:
         await session.rollback()
 
-        refreshed_daily_run = await session.get(DailyRun, daily_run_id)
-        if refreshed_daily_run is not None:
-            refreshed_daily_run.finished_at = _now_utc()
-            refreshed_daily_run.status = "FAILED"
-            refreshed_daily_run.stats = {
-                "source": batch.source,
-                "collected_count": batch.collected_count,
-                "created_count": 0,
-                "updated_count": 0,
-                "unchanged_count": 0,
-                "error_count": 1,
-            }
-            refreshed_daily_run.error = str(exc)
-            await session.commit()
+        await session.execute(
+            update(DailyRun)
+            .where(DailyRun.id == daily_run_id)
+            .values(
+                finished_at=_now_utc(),
+                status="FAILED",
+                stats={
+                    "source": batch.source,
+                    "collected_count": batch.collected_count,
+                    "created_count": 0,
+                    "updated_count": 0,
+                    "unchanged_count": 0,
+                    "error_count": 1,
+                },
+                error=str(exc),
+            )
+        )
+        await session.commit()
 
         return PersistenceResult(
             daily_run_id=daily_run_id,

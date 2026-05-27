@@ -94,12 +94,17 @@ def test_fetch_pages_fetch_called_when_not_skip(monkeypatch) -> None:
 
     monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
 
-    cache_paths, fetched_pages, notes = asyncio.run(MODULE._fetch_pages(args))
+    cache_paths, fetched_pages, loaded_from_cache, notes, stopped_at_page, stopped_reason = asyncio.run(
+        MODULE._fetch_pages(args)
+    )
 
     assert captured["url"] == "https://example.test/listing"
     assert cache_paths == [Path("dummy.html")]
     assert fetched_pages == 1
+    assert loaded_from_cache == 0
     assert notes == []
+    assert stopped_at_page is None
+    assert stopped_reason is None
 
 
 def test_fetch_pages_without_clear_pagination_stays_single_page(monkeypatch, tmp_path: Path) -> None:
@@ -114,11 +119,61 @@ def test_fetch_pages_without_clear_pagination_stays_single_page(monkeypatch, tmp
 
     monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
 
-    cache_paths, fetched_pages, notes = asyncio.run(MODULE._fetch_pages(args))
+    cache_paths, fetched_pages, loaded_from_cache, notes, stopped_at_page, stopped_reason = asyncio.run(
+        MODULE._fetch_pages(args)
+    )
 
     assert cache_paths == [file_path]
     assert fetched_pages == 1
+    assert loaded_from_cache == 0
     assert any("pagination Lookmove non détectée" in note for note in notes)
+    assert stopped_at_page == 2
+    assert stopped_reason == "PAGINATION_NOT_DETECTED"
+
+
+def test_fetch_pages_use_cache_reuses_fresh_cache(monkeypatch, tmp_path: Path) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["https://example.test/listing", "--use-cache"])
+
+    cached = tmp_path / "cached.html"
+    cached.write_text("<html></html>", encoding="utf-8")
+
+    async def fake_fetch_html_to_cache(**kwargs):
+        raise AssertionError("fetch_html_to_cache should not be called when fresh cache exists")
+
+    monkeypatch.setattr(MODULE, "_find_fresh_cache_for_url", lambda *a, **k: cached)
+    monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
+
+    cache_paths, fetched_pages, loaded_from_cache, notes, stopped_at_page, stopped_reason = asyncio.run(
+        MODULE._fetch_pages(args)
+    )
+    assert cache_paths == [cached]
+    assert fetched_pages == 0
+    assert loaded_from_cache == 1
+    assert notes == []
+    assert stopped_at_page is None
+    assert stopped_reason is None
+
+
+def test_fetch_pages_use_cache_expired_falls_back_to_fetch(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["https://example.test/listing", "--use-cache"])
+
+    async def fake_fetch_html_to_cache(**kwargs):
+        return SimpleNamespace(status_code=200, size_bytes=123, file_path=Path("dummy.html"))
+
+    monkeypatch.setattr(MODULE, "_find_fresh_cache_for_url", lambda *a, **k: None)
+    monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
+
+    cache_paths, fetched_pages, loaded_from_cache, notes, stopped_at_page, stopped_reason = asyncio.run(
+        MODULE._fetch_pages(args)
+    )
+    assert cache_paths == [Path("dummy.html")]
+    assert fetched_pages == 1
+    assert loaded_from_cache == 0
+    assert notes == []
+    assert stopped_at_page is None
+    assert stopped_reason is None
 
 
 def test_run_passes_max_listings_to_filter(monkeypatch) -> None:
@@ -137,7 +192,7 @@ def test_run_passes_max_listings_to_filter(monkeypatch) -> None:
     captured: dict[str, int] = {}
 
     async def fake_fetch_pages(_args):
-        return [Path("tests/fixtures/html/lookmove_sample_listing_page.html")], 0, []
+        return [Path("tests/fixtures/html/lookmove_sample_listing_page.html")], 0, 1, [], None, None
 
     async def fake_collect_and_normalize(_scraper):
         listings = [_listing(1), _listing(2)]
@@ -188,7 +243,7 @@ def test_run_with_exports_uses_quality_report(monkeypatch, tmp_path: Path) -> No
     )
 
     async def fake_fetch_pages(_args):
-        return [Path("tests/fixtures/html/lookmove_sample_listing_page.html")], 0, []
+        return [Path("tests/fixtures/html/lookmove_sample_listing_page.html")], 0, 1, [], None, None
 
     async def fake_collect_and_normalize(_scraper):
         listings = [_listing(1)]

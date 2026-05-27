@@ -1,5 +1,6 @@
 import csv
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -282,9 +283,12 @@ async def export_quality_report_csv(
     output_path: Path,
     *,
     thresholds: QualityThresholds = DEFAULT_QUALITY_THRESHOLDS,
+    property_filter: Callable[[Property], bool] | None = None,
 ) -> QualityExportResult:
     query = select(Property).options(selectinload(Property.listings)).order_by(Property.first_seen_at.desc())
     properties = (await session.execute(query)).scalars().all()
+    if property_filter is not None:
+        properties = [row for row in properties if property_filter(row)]
     rows = build_quality_rows(properties, thresholds=thresholds)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

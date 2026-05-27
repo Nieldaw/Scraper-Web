@@ -15,6 +15,7 @@ htmlcov/
 data/cache/html/*.html
 !data/cache/html/.gitkeep
 data/exports/*.csv
+data/exports/**/*.csv
 !data/exports/.gitkeep
 playwright-report/
 test-results/

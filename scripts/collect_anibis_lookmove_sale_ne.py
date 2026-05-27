@@ -63,6 +63,9 @@ class SourceFetchResult:
     cache_paths: list[Path]
     pages_fetched: int
     notes: list[str]
+    source_status: str = "PASS"
+    stopped_at_page: int | None = None
+    pagination_stopped_reason: str | None = None
 
 
 def _set_query_param(url: str, *, key: str, value: str) -> str:
@@ -121,6 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source après filtres.")
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre max de pages par source (défaut: 1).")
+    parser.add_argument("--delay-seconds", type=float, default=1.0, help="Délai entre pages fetchées (défaut: 1.0).")
 
     parser.add_argument("--skip-fetch-anibis", action="store_true", help="Réutiliser un cache Anibis existant.")
     parser.add_argument("--anibis-cache-path", type=Path, default=None, help="Chemin cache Anibis requis si --skip-fetch-anibis.")
@@ -152,6 +156,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--timeout must be > 0")
     if args.retries is not None and args.retries < 0:
         raise ValueError("--retries must be >= 0")
+    if args.delay_seconds < 0:
+        raise ValueError("--delay-seconds must be >= 0")
 
 
 def _build_fetch_safety(timeout: float | None, retries: int | None) -> SafetyConfig:
@@ -196,6 +202,7 @@ async def _resolve_cache_files_for_source(
     timeout: float | None,
     retries: int | None,
     max_pages: int,
+    delay_seconds: float,
 ) -> SourceFetchResult:
     notes: list[str] = []
     if skip_fetch:
@@ -216,6 +223,8 @@ async def _resolve_cache_files_for_source(
                 retries=retries,
             )
             cache_paths.append(page_cache)
+            if delay_seconds > 0 and len(cache_paths) < max_pages:
+                await asyncio.sleep(delay_seconds)
         return SourceFetchResult(
             name=name,
             cache_paths=cache_paths,
@@ -250,14 +259,53 @@ async def _resolve_cache_files_for_source(
             break
 
         visited_urls.add(next_url)
-        next_cache = await _resolve_cache_file(
-            skip_fetch=False,
-            cache_path=None,
-            url=next_url,
-            source_name=source_name,
-            timeout=timeout,
-            retries=retries,
-        )
+        if delay_seconds > 0:
+            await asyncio.sleep(delay_seconds)
+        try:
+            next_cache = await _resolve_cache_file(
+                skip_fetch=False,
+                cache_path=None,
+                url=next_url,
+                source_name=source_name,
+                timeout=timeout,
+                retries=retries,
+            )
+        except ScraperHTTPError as exc:
+            stop_page = pages_fetched + 1
+            notes.append(f"Lookmove pagination stopped at page {stop_page}: HTTP {exc.status_code}")
+            return SourceFetchResult(
+                name=name,
+                cache_paths=cache_paths,
+                pages_fetched=pages_fetched,
+                notes=notes,
+                source_status="WARNING",
+                stopped_at_page=stop_page,
+                pagination_stopped_reason=f"HTTP_{exc.status_code}",
+            )
+        except ScraperTimeoutError:
+            stop_page = pages_fetched + 1
+            notes.append(f"Lookmove pagination stopped at page {stop_page}: TIMEOUT")
+            return SourceFetchResult(
+                name=name,
+                cache_paths=cache_paths,
+                pages_fetched=pages_fetched,
+                notes=notes,
+                source_status="WARNING",
+                stopped_at_page=stop_page,
+                pagination_stopped_reason="TIMEOUT",
+            )
+        except Exception as exc:
+            stop_page = pages_fetched + 1
+            notes.append(f"Lookmove pagination stopped at page {stop_page}: NETWORK_ERROR ({exc})")
+            return SourceFetchResult(
+                name=name,
+                cache_paths=cache_paths,
+                pages_fetched=pages_fetched,
+                notes=notes,
+                source_status="WARNING",
+                stopped_at_page=stop_page,
+                pagination_stopped_reason="NETWORK_ERROR",
+            )
         cache_paths.append(next_cache)
         pages_fetched += 1
         current_url = next_url
@@ -412,6 +460,7 @@ async def _run(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             retries=args.retries,
             max_pages=args.max_pages,
+            delay_seconds=args.delay_seconds,
         )
         lookmove_fetch = await _resolve_cache_files_for_source(
             name="lookmove",
@@ -422,6 +471,7 @@ async def _run(args: argparse.Namespace) -> int:
             timeout=args.timeout,
             retries=args.retries,
             max_pages=args.max_pages,
+            delay_seconds=args.delay_seconds,
         )
     except ScraperHTTPError as exc:
         print(f"HTTP error: {exc.status_code} for {exc.url}")
@@ -482,6 +532,11 @@ async def _run(args: argparse.Namespace) -> int:
         print(f"- [{result.name}] pages requested: {args.max_pages}")
         print(f"  pages fetched: {0 if skip_fetch_for_source else fetch_meta.pages_fetched}")
         print(f"  pages parsed: {pages_parsed}")
+        print(f"  source status: {fetch_meta.source_status}")
+        if fetch_meta.stopped_at_page is not None:
+            print(f"  stopped at page: {fetch_meta.stopped_at_page}")
+        if fetch_meta.pagination_stopped_reason:
+            print(f"  stop reason: {fetch_meta.pagination_stopped_reason}")
         print(f"  cache files ({len(fetch_meta.cache_paths)}):")
         for cache in fetch_meta.cache_paths:
             print(f"    - {cache}")

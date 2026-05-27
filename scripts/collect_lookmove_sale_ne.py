@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
 
@@ -39,6 +40,34 @@ def _set_query_param(url: str, *, key: str, value: str) -> str:
     params = dict(parse_qs(parsed.query, keep_blank_values=True))
     params[key] = [value]
     return urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+
+
+def _cache_lookup_key(url: str) -> tuple[str, str, str]:
+    parsed = urlparse(url)
+    domain = (parsed.netloc or "unknown").replace(":", "_").replace(".", "_")
+    path = parsed.path.strip("/") or "root"
+    path_slug = "_".join(part for part in path.split("/") if part)[:80]
+    query_suffix = ""
+    if parsed.query:
+        import hashlib
+
+        query_hash = hashlib.sha1(parsed.query.encode("utf-8")).hexdigest()[:8]
+        query_suffix = f"_q{query_hash}"
+    return domain, path_slug, query_suffix
+
+
+def _find_fresh_cache_for_url(cache_dir: Path, url: str, *, max_age_hours: int) -> Path | None:
+    domain, path_slug, query_suffix = _cache_lookup_key(url)
+    pattern = f"*_{domain}_{path_slug}{query_suffix}.html"
+    matches = sorted(cache_dir.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not matches:
+        return None
+    freshest = matches[0]
+    cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
+    modified_at = datetime.fromtimestamp(freshest.stat().st_mtime, tz=UTC)
+    if modified_at < cutoff:
+        return None
+    return freshest
 
 
 def _extract_next_page_url(html_text: str, current_url: str) -> str | None:
@@ -93,6 +122,23 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-listings", type=int, default=None, help="Limiter le nombre d'annonces traitées.")
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre maximum de pages à parcourir (défaut: 1).")
     parser.add_argument(
+        "--use-cache",
+        action="store_true",
+        help="Réutiliser un cache Lookmove récent quand disponible.",
+    )
+    parser.add_argument(
+        "--cache-max-age-hours",
+        type=int,
+        default=24,
+        help="Âge max du cache Lookmove en heures si --use-cache (défaut: 24).",
+    )
+    parser.add_argument(
+        "--delay-seconds",
+        type=float,
+        default=1.0,
+        help="Délai entre deux pages fetchées (défaut: 1.0).",
+    )
+    parser.add_argument(
         "--skip-fetch",
         action="store_true",
         help="Ne pas télécharger et réutiliser un cache local.",
@@ -136,6 +182,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--timeout must be > 0")
     if args.retries is not None and args.retries < 0:
         raise ValueError("--retries must be >= 0")
+    if args.delay_seconds < 0:
+        raise ValueError("--delay-seconds must be >= 0")
+    if args.cache_max_age_hours < 1:
+        raise ValueError("--cache-max-age-hours must be >= 1")
 
 
 def _build_fetch_safety(timeout: float | None, retries: int | None) -> SafetyConfig:
@@ -146,54 +196,102 @@ def _build_fetch_safety(timeout: float | None, retries: int | None) -> SafetyCon
     )
 
 
-async def _fetch_pages(args: argparse.Namespace) -> tuple[list[Path], int, list[str]]:
+async def _fetch_pages(
+    args: argparse.Namespace,
+) -> tuple[list[Path], int, int, list[str], int | None, str | None]:
     notes: list[str] = []
+    loaded_from_cache_pages = 0
+    stopped_at_page: int | None = None
+    stopped_reason: str | None = None
+    cache_dir = ROOT / "data" / "cache" / "html"
     if args.skip_fetch:
         assert args.cache_path is not None
         if args.max_pages > 1:
             notes.append("Info: --skip-fetch fourni, une seule page cache sera parsée.")
-        return [args.cache_path], 0, notes
+        return [args.cache_path], 0, 1, notes, stopped_at_page, stopped_reason
 
     safety = _build_fetch_safety(args.timeout, args.retries)
-    first_result = await fetch_html_to_cache(
-        url=args.url,
-        cache_dir=ROOT / "data" / "cache" / "html",
-        source="lookmove_sale_ne",
-        safety=safety,
-    )
-    print(f"Page 1: HTTP status={first_result.status_code} size={first_result.size_bytes} path={first_result.file_path}")
+    if args.use_cache:
+        cached = _find_fresh_cache_for_url(cache_dir, args.url, max_age_hours=args.cache_max_age_hours)
+    else:
+        cached = None
 
-    cache_paths = [first_result.file_path]
-    fetched_pages = 1
+    fetched_pages = 0
+    if cached is not None:
+        cache_paths = [cached]
+        loaded_from_cache_pages += 1
+        print(f"Page 1: loaded from cache path={cached}")
+    else:
+        first_result = await fetch_html_to_cache(
+            url=args.url,
+            cache_dir=cache_dir,
+            source="lookmove_sale_ne",
+            safety=safety,
+        )
+        print(f"Page 1: HTTP status={first_result.status_code} size={first_result.size_bytes} path={first_result.file_path}")
+        cache_paths = [first_result.file_path]
+        fetched_pages += 1
     if args.max_pages == 1:
-        return cache_paths, fetched_pages, notes
+        return cache_paths, fetched_pages, loaded_from_cache_pages, notes, stopped_at_page, stopped_reason
 
     current_url = args.url
     visited_urls = {current_url}
-    current_html = first_result.file_path.read_text(encoding="utf-8")
+    current_html = cache_paths[0].read_text(encoding="utf-8")
 
-    while fetched_pages < args.max_pages:
+    while len(cache_paths) < args.max_pages:
         next_url = _extract_next_page_url(current_html, current_url)
         if not next_url:
             notes.append(
                 "Info: pagination Lookmove non détectée proprement dans le HTML brut; arrêt à 1 page."
             )
+            if args.max_pages > 1:
+                stopped_at_page = len(cache_paths) + 1
+                stopped_reason = "PAGINATION_NOT_DETECTED"
             break
         if next_url in visited_urls:
             notes.append("Info: boucle pagination détectée, arrêt prudent.")
+            stopped_at_page = len(cache_paths) + 1
+            stopped_reason = "PAGINATION_LOOP"
             break
 
         visited_urls.add(next_url)
         current_url = next_url
-        next_result = await fetch_html_to_cache(
-            url=current_url,
-            cache_dir=ROOT / "data" / "cache" / "html",
-            source="lookmove_sale_ne",
-            safety=safety,
-        )
+        if args.delay_seconds > 0:
+            await asyncio.sleep(args.delay_seconds)
+        if args.use_cache:
+            next_cached = _find_fresh_cache_for_url(cache_dir, current_url, max_age_hours=args.cache_max_age_hours)
+        else:
+            next_cached = None
+        if next_cached is not None:
+            cache_paths.append(next_cached)
+            loaded_from_cache_pages += 1
+            print(f"Page {len(cache_paths)}: loaded from cache path={next_cached}")
+            current_html = next_cached.read_text(encoding="utf-8")
+            continue
+        try:
+            next_result = await fetch_html_to_cache(
+                url=current_url,
+                cache_dir=cache_dir,
+                source="lookmove_sale_ne",
+                safety=safety,
+            )
+        except ScraperHTTPError as exc:
+            stopped_at_page = len(cache_paths) + 1
+            stopped_reason = f"HTTP_{exc.status_code}"
+            notes.append(
+                f"Lookmove blocked pagination at page {stopped_at_page}, HTTP {exc.status_code}, use cache or retry later."
+            )
+            break
+        except ScraperTimeoutError:
+            stopped_at_page = len(cache_paths) + 1
+            stopped_reason = "TIMEOUT"
+            notes.append(
+                f"Lookmove blocked pagination at page {stopped_at_page}, TIMEOUT, use cache or retry later."
+            )
+            break
         fetched_pages += 1
         print(
-            f"Page {fetched_pages}: HTTP status={next_result.status_code} "
+            f"Page {len(cache_paths) + 1}: HTTP status={next_result.status_code} "
             f"size={next_result.size_bytes} path={next_result.file_path}"
         )
         cache_paths.append(next_result.file_path)
@@ -206,7 +304,7 @@ async def _fetch_pages(args: argparse.Namespace) -> tuple[list[Path], int, list[
             notes.append(
                 "Info: aucune pagination explicite détectée; max-pages>1 conservé mais non forcé sans signal clair."
             )
-    return cache_paths, fetched_pages, notes
+    return cache_paths, fetched_pages, loaded_from_cache_pages, notes, stopped_at_page, stopped_reason
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -217,7 +315,7 @@ async def _run(args: argparse.Namespace) -> int:
         return 2
 
     try:
-        cache_paths, fetched_pages, notes = await _fetch_pages(args)
+        cache_paths, fetched_pages, loaded_from_cache_pages, notes, stopped_at_page, stopped_reason = await _fetch_pages(args)
     except ScraperHTTPError as exc:
         print(f"HTTP error: {exc.status_code} for {exc.url}")
         return 1
@@ -298,7 +396,12 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"- URL used: {args.url}")
     print(f"- Pages requested: {args.max_pages}")
     print(f"- Pages fetched: {fetched_pages if not args.skip_fetch else 0}")
+    print(f"- Pages loaded from cache: {loaded_from_cache_pages}")
     print(f"- Pages parsed: {parsed_pages}")
+    if stopped_at_page is not None:
+        print(f"- Stopped at page: {stopped_at_page}")
+    if stopped_reason:
+        print(f"- Pagination stopped reason: {stopped_reason}")
     print(f"- Cache files created/used: {len(cache_paths)}")
     for cache_path in cache_paths:
         print(f"  - {cache_path}")

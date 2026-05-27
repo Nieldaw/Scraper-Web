@@ -10,6 +10,7 @@ from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import Property, PropertyStatus, SitnStatus, SourceListing
 from immo_ne_collector.services.exports import (
     EXPORT_HEADERS,
+    export_all_csv,
     export_inactifs_csv,
     export_locations_csv,
     export_master_csv,
@@ -17,6 +18,8 @@ from immo_ne_collector.services.exports import (
     export_nouveaux_csv,
     export_ventes_csv,
 )
+from immo_ne_collector.services.quality import export_quality_report_csv
+from immo_ne_collector.services.source_config import build_canton_property_filter
 
 pytestmark = pytest.mark.db
 
@@ -30,6 +33,7 @@ async def _create_property_with_listings(
     status: str,
     title: str = "Bien test",
     city: str = "Neuchatel",
+    postal_code: str = "2000",
     source_names: list[str] | None = None,
     transaction_types: list[str] | None = None,
 ) -> Property:
@@ -42,7 +46,7 @@ async def _create_property_with_listings(
         living_area_m2=120,
         address_full="Rue du Seyon 12",
         city=city,
-        postal_code="2000",
+        postal_code=postal_code,
         sources=[],
         source_urls=[],
         first_seen_at=first_seen_at,
@@ -77,7 +81,7 @@ async def _create_property_with_listings(
                     living_area_m2=120,
                     address_full="Rue du Seyon 12",
                     city=city,
-                    postal_code="2000",
+                    postal_code=postal_code,
                     description=f"description {token}",
                     raw_data={"test": token, "transaction_type": tx_type},
                     first_seen_at=first_seen_at,
@@ -372,3 +376,55 @@ async def test_export_locations_contains_only_rent(tmp_path: Path) -> None:
     ids = {row["property_id"] for row in rows}
     assert str(rent_row.id) in ids
     assert all(row["transaction_type"] == "rent" for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_export_by_canton_generates_filtered_files(tmp_path: Path) -> None:
+    now = datetime.now(UTC)
+    ne_row = await _create_property_with_listings(
+        token=f"exp-ne-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=1),
+        last_seen_at=now - timedelta(hours=1),
+        last_changed_at=now - timedelta(hours=1),
+        status=PropertyStatus.ACTIVE,
+        city="Neuchatel",
+        transaction_types=["sale"],
+        source_names=[f"ne-src-{uuid4().hex[:6]}"],
+    )
+    await _create_property_with_listings(
+        token=f"exp-be-{uuid4().hex[:6]}",
+        first_seen_at=now - timedelta(days=1),
+        last_seen_at=now - timedelta(hours=1),
+        last_changed_at=now - timedelta(hours=1),
+        status=PropertyStatus.ACTIVE,
+        city="Berne",
+        postal_code="3000",
+        source_names=[f"be-src-{uuid4().hex[:6]}"],
+        transaction_types=["sale"],
+    )
+
+    canton_filter = build_canton_property_filter("NE")
+    by_canton_dir = tmp_path / "by_canton" / "NE"
+
+    async with AsyncSessionLocal() as session:
+        export_results = await export_all_csv(
+            output_dir=by_canton_dir,
+            session=session,
+            property_filter=canton_filter,
+        )
+        quality_result = await export_quality_report_csv(
+            session,
+            by_canton_dir / "quality_report.csv",
+            property_filter=canton_filter,
+        )
+
+    master = next(item for item in export_results if item.name == "MASTER")
+    ventes = next(item for item in export_results if item.name == "VENTES")
+    assert master.path.exists()
+    assert ventes.path.exists()
+    assert quality_result.path.exists()
+
+    master_rows = _read_csv(master.path)
+    ids = {row["property_id"] for row in master_rows}
+    assert str(ne_row.id) in ids
+    assert all("berne" not in row["city"].lower() for row in master_rows if row["city"])

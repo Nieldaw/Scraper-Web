@@ -95,6 +95,7 @@ def test_resolve_lookmove_pages_without_clear_pagination_stays_single_page(
             timeout=None,
             retries=None,
             max_pages=3,
+            delay_seconds=0,
         )
 
     async def fake_resolve_cache_file(**kwargs):
