@@ -363,6 +363,42 @@ def test_fetch_or_reuse_page_use_cache_skips_fetch(monkeypatch, tmp_path: Path) 
     assert warnings == []
 
 
+def test_fetch_or_reuse_page_stale_cache_refetches_with_warning(monkeypatch, tmp_path: Path) -> None:
+    stale_file = tmp_path / "stale.html"
+    stale_file.write_text("<html>stale</html>", encoding="utf-8")
+    fetched_file = tmp_path / "fetched.html"
+    fetched_file.write_text("<html>fresh</html>", encoding="utf-8")
+
+    class _FetchResult:
+        status_code = 200
+        size_bytes = fetched_file.stat().st_size
+        file_path = fetched_file
+
+    async def fake_fetch_html_to_cache(**kwargs):
+        return _FetchResult()
+
+    monkeypatch.setattr(MODULE, "_find_fresh_cache_for_url", lambda *a, **k: None)
+    monkeypatch.setattr(MODULE, "_find_latest_cache_for_url", lambda *a, **k: stale_file)
+    monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
+
+    status, size, path, html, warnings = asyncio.run(
+        MODULE._fetch_or_reuse_page(
+            source="anibis",
+            url="https://example.test/listing",
+            skip_fetch=False,
+            use_cache=True,
+            cache_max_age_hours=24,
+            safety=MODULE._build_fetch_safety(None, None),
+            cache_dir=tmp_path,
+        )
+    )
+    assert status == "200"
+    assert size == fetched_file.stat().st_size
+    assert path == fetched_file
+    assert "fresh" in html
+    assert any("stale cache" in warning for warning in warnings)
+
+
 def test_lookmove_http_403_on_first_page_is_warning(monkeypatch) -> None:
     async def fake_fetch_or_reuse_page(**kwargs):
         raise MODULE.ScraperHTTPError(source="lookmove", status_code=403, url=kwargs["url"])
@@ -394,6 +430,89 @@ def test_lookmove_http_403_on_first_page_is_warning(monkeypatch) -> None:
     assert fetched_pages == 0
     assert loaded_from_cache == 0
     assert any("Use cache or retry later" in warning for warning in warnings)
+
+
+def test_anibis_timeout_after_success_stops_with_warning(monkeypatch, tmp_path: Path) -> None:
+    page1 = tmp_path / "anibis_p1.html"
+    page1.write_text("<html><body></body></html>", encoding="utf-8")
+
+    calls = {"count": 0}
+
+    async def fake_fetch_or_reuse_page(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return ("200", page1.stat().st_size, page1, page1.read_text(encoding="utf-8"), [])
+        raise MODULE.ScraperTimeoutError("anibis: timeout")
+
+    async def fake_collect_and_normalize(_scraper):
+        return CollectionBatch(
+            source="anibis_cached",
+            collected_count=1,
+            listings=[
+                _listing(
+                    idx=1,
+                    url="https://www.anibis.ch/fr/vi/neuchatel/immobilier/appartements/test/1",
+                    city="Neuchatel",
+                    postal_code="2000",
+                )
+            ],
+        )
+
+    def fake_filter_collection_batch(batch, *, max_listings, transaction_type, canton):
+        from immo_ne_collector.services.anibis_filters import FilterStats
+
+        return (
+            batch,
+            FilterStats(
+                detected_total=1,
+                transaction_counts={"sale": 1, "rent": 0, "unknown": 0},
+                kept_canton_count=1,
+                excluded_canton_count=0,
+                excluded_examples=[],
+                filtered_count=1,
+            ),
+        )
+
+    async def fake_persist_collection_batch(_batch):
+        class _R:
+            collected_count = 1
+            created_count = 1
+            updated_count = 0
+            unchanged_count = 0
+            errors: list[str] = []
+
+        return _R()
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+    monkeypatch.setattr(MODULE, "collect_and_normalize", fake_collect_and_normalize)
+    monkeypatch.setattr(MODULE, "filter_collection_batch", fake_filter_collection_batch)
+    monkeypatch.setattr(MODULE, "persist_collection_batch", fake_persist_collection_batch)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="anibis",
+            canton="NE",
+            base_url="https://www.anibis.ch/fr/q/test?page=1",
+            max_pages=3,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 2
+    assert stopped_reason == "TIMEOUT"
+    assert rows
+    assert rows[-1].warning_count == 1
+    assert rows[-1].error_count == 0
+    assert fetched_pages == 1
+    assert loaded_from_cache == 0
+    assert any("pagination stopped at page 2: TIMEOUT" in w for w in [rows[-1].warnings, *warnings])
 
 
 def test_validate_by_canton_exports_fails_on_out_of_canton_urls(monkeypatch, tmp_path: Path) -> None:

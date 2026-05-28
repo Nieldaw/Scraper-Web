@@ -314,13 +314,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--use-cache",
         action="store_true",
-        help="Réutiliser le cache Lookmove récent avant de refaire un fetch.",
+        help="Réutiliser le cache récent (Anibis/Lookmove) avant de refaire un fetch.",
     )
     parser.add_argument(
         "--cache-max-age-hours",
         type=int,
         default=24,
-        help="Âge max du cache Lookmove en heures si --use-cache (défaut: 24).",
+        help="Âge max du cache en heures si --use-cache (défaut: 24).",
     )
     parser.add_argument(
         "--output",
@@ -378,11 +378,20 @@ async def _fetch_or_reuse_page(
         html = cached_path.read_text(encoding="utf-8")
         return ("CACHED", cached_path.stat().st_size, cached_path, html, warnings)
 
-    if use_cache and source == "lookmove":
+    if use_cache:
         cached_path = _find_fresh_cache_for_url(cache_dir, url, max_age_hours=cache_max_age_hours)
         if cached_path is not None:
             html = cached_path.read_text(encoding="utf-8")
             return ("CACHED", cached_path.stat().st_size, cached_path, html, warnings)
+        latest_cache = _find_latest_cache_for_url(cache_dir, url)
+        if latest_cache is None:
+            warnings.append(
+                f"{source}: cache miss for URL={url}; fetching live page."
+            )
+        else:
+            warnings.append(
+                f"{source}: stale cache for URL={url} (>{cache_max_age_hours}h); fetching live page."
+            )
 
     result = await fetch_html_to_cache(
         url=url,
@@ -419,6 +428,7 @@ async def _collect_source_audit_rows(
     loaded_from_cache_pages = 0
     previous_ids: set[str] = set()
     remaining = max_listings
+    parsed_success_pages = 0
 
     if source == "anibis":
         page_urls = _build_anibis_page_urls(base_url, max_pages)
@@ -489,7 +499,8 @@ async def _collect_source_audit_rows(
                     )
                 )
                 break
-            source_status = "FAIL"
+            is_partial_success = parsed_success_pages > 0
+            source_status = "WARNING" if is_partial_success else "FAIL"
             stopped_at_page = failed_page
             stopped_reason = f"HTTP_{exc.status_code}"
             rows.append(
@@ -512,10 +523,19 @@ async def _collect_source_audit_rows(
                     created_count=0,
                     updated_count=0,
                     unchanged_count=0,
-                    error_count=1,
-                    warning_count=0,
-                    warnings="",
-                    errors=f"{source}: fetch failed at page {failed_page} with HTTP {exc.status_code}",
+                    error_count=0 if is_partial_success else 1,
+                    warning_count=1 if is_partial_success else 0,
+                    warnings=(
+                        f"{source}: pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
+                        "Partial results kept."
+                        if is_partial_success
+                        else ""
+                    ),
+                    errors=(
+                        ""
+                        if is_partial_success
+                        else f"{source}: fetch failed at page {failed_page} with HTTP {exc.status_code}"
+                    ),
                     source_status=source_status,
                     stopped_at_page=stopped_at_page,
                     pagination_stopped_reason=stopped_reason or "",
@@ -564,7 +584,8 @@ async def _collect_source_audit_rows(
                     )
                 )
                 break
-            source_status = "FAIL"
+            is_partial_success = parsed_success_pages > 0
+            source_status = "WARNING" if is_partial_success else "FAIL"
             stopped_at_page = failed_page
             stopped_reason = "TIMEOUT"
             rows.append(
@@ -587,10 +608,18 @@ async def _collect_source_audit_rows(
                     created_count=0,
                     updated_count=0,
                     unchanged_count=0,
-                    error_count=1,
-                    warning_count=0,
-                    warnings="",
-                    errors=f"{source}: fetch timeout at page {failed_page}",
+                    error_count=0 if is_partial_success else 1,
+                    warning_count=1 if is_partial_success else 0,
+                    warnings=(
+                        f"{source}: pagination stopped at page {failed_page}: TIMEOUT. Partial results kept."
+                        if is_partial_success
+                        else ""
+                    ),
+                    errors=(
+                        ""
+                        if is_partial_success
+                        else f"{source}: fetch timeout at page {failed_page}"
+                    ),
                     source_status=source_status,
                     stopped_at_page=stopped_at_page,
                     pagination_stopped_reason=stopped_reason or "",
@@ -679,6 +708,8 @@ async def _collect_source_audit_rows(
                 pagination_stopped_reason=stopped_reason or "",
             )
         )
+        if parsed:
+            parsed_success_pages += 1
 
         if source == "lookmove":
             if page_number >= max_pages:
@@ -771,6 +802,25 @@ def _global_status(
     if warning_total > 0:
         return "WARNING"
     return "PASS"
+
+
+def _extract_main_errors(rows: list[AuditPageRow], *, limit: int = 12) -> list[str]:
+    errors: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        if not row.errors:
+            continue
+        for item in row.errors.split(" | "):
+            text = item.strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            errors.append(
+                f"{row.canton}/{row.source}/page{row.page_requested}: {text}"
+            )
+            if len(errors) >= limit:
+                return errors
+    return errors
 
 
 def _resolve_cantons(args: argparse.Namespace) -> list[str]:
@@ -965,6 +1015,11 @@ async def _run(args: argparse.Namespace) -> int:
         print("- Main failures:")
         for failure in top_failures[:12]:
             print(f"  - {failure}")
+    main_errors = _extract_main_errors(all_rows)
+    if main_errors:
+        print("- Main errors:")
+        for error in main_errors:
+            print(f"  - {error}")
 
     if status == "FAIL":
         return 1
