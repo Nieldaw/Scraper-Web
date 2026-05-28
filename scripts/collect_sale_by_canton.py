@@ -562,6 +562,7 @@ def _build_disabled_source_summary(
     base_url: str | None = None,
     max_pages: int,
     note: str,
+    pagination_reason: str = "SOURCE_DISABLED",
 ) -> SourceSummary:
     return SourceSummary(
         source=source,
@@ -586,7 +587,7 @@ def _build_disabled_source_summary(
         notes=[note],
         source_status="WARNING",
         stopped_at_page=None,
-        pagination_stopped_reason="SOURCE_DISABLED",
+        pagination_stopped_reason=pagination_reason,
     )
 
 
@@ -701,12 +702,16 @@ async def _run_canton(
 
         if not source_config.enabled:
             note = source_config.note or "source disabled"
+            disabled_reason = (
+                "HOMEGATE_DISABLED_ANTI_BOT_RISK" if source == "homegate" else "SOURCE_DISABLED"
+            )
             if not source_urls:
                 summaries.append(
                     _build_disabled_source_summary(
                         source=source,
                         max_pages=args.max_pages,
                         note=f"{source} disabled for {canton}: {note}",
+                        pagination_reason=disabled_reason,
                     )
                 )
                 continue
@@ -718,6 +723,7 @@ async def _run_canton(
                         base_url=source_url.url,
                         max_pages=args.max_pages,
                         note=f"{source} disabled for {canton}: {note}",
+                        pagination_reason=disabled_reason,
                     )
                 )
             continue

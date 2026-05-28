@@ -104,6 +104,13 @@ Fichiers generes:
 - `data/exports/ventes.csv`
 - `data/exports/quality_report.csv`
 
+## Source Homegate (etat MVP)
+
+- Homegate est prepare techniquement avec `url_kind=residential|land` par canton romand.
+- La source reste desactivee par defaut a cause du risque Cloudflare/anti-bot en HTTP simple.
+- Aucun contournement n'est implemente (pas de Playwright, proxy, headless furtif, CAPTCHA).
+- Details: `docs/08_homegate_source.md`.
+
 ## Structure
 
 ```text

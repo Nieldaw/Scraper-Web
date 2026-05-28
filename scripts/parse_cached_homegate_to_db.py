@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import sys
+from collections import Counter
 from pathlib import Path
 
 # ruff: noqa: E402
@@ -88,6 +89,8 @@ async def _run(
         canton=canton,
     )
     result = await persist_collection_batch(batch)
+    parser_strategies = Counter(str(item.raw_data.get("parser_strategy", "unknown")) for item in batch.listings)
+    challenge_detected = any(bool(item.raw_data.get("challenge_detected")) for item in batch.listings)
 
     print(f"Cached HTML: {file_path}")
     print(f"Detected before filters: {stats.detected_total}")
@@ -100,6 +103,8 @@ async def _run(
     print(f"Filter transaction_type: {transaction_type}")
     print(f"Filter canton: {canton if canton else 'none'}")
     print(f"URL kind: {url_kind}")
+    print(f"Parser strategies: {dict(parser_strategies)}")
+    print(f"Challenge detected: {challenge_detected}")
     if canton:
         print(f"Kept by canton {canton}: {stats.kept_canton_count}")
         print(f"Excluded out of canton: {stats.excluded_canton_count}")

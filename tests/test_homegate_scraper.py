@@ -6,11 +6,18 @@ from sqlalchemy import select
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import SourceListing
-from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
+from immo_ne_collector.scrapers.homegate import (
+    HomegateCachedHtmlScraper,
+    HomegateParseError,
+    detect_homegate_challenge_html,
+)
 from immo_ne_collector.services.collection import collect_and_normalize
 from immo_ne_collector.services.persistence import persist_collection_batch
 
 FIXTURE_PATH = Path("tests/fixtures/html/homegate_sample_listing_page.html")
+INITIAL_STATE_RESIDENTIAL_FIXTURE = Path("tests/fixtures/html/homegate_initial_state_residential.html")
+INITIAL_STATE_LAND_FIXTURE = Path("tests/fixtures/html/homegate_initial_state_land.html")
+CHALLENGE_FIXTURE = Path("tests/fixtures/html/homegate_cloudflare_challenge.html")
 
 
 @pytest.mark.asyncio
@@ -34,6 +41,8 @@ async def test_homegate_parser_extracts_raw_listing_from_fixture() -> None:
     assert first.raw_data.get("detected_canton") == "NE"
     assert first.raw_data.get("url_kind") == "residential"
     assert first.raw_data.get("source_category") == "residential"
+    assert first.raw_data.get("parser_strategy") == "html_fixture_fallback"
+    assert first.raw_data.get("challenge_detected") is False
 
 
 def test_homegate_parser_raises_readable_error_for_unknown_structure(tmp_path: Path) -> None:
@@ -43,6 +52,12 @@ def test_homegate_parser_raises_readable_error_for_unknown_structure(tmp_path: P
 
     with pytest.raises(HomegateParseError, match="No Homegate listing cards found"):
         scraper.parse_html(file_path.read_text(encoding="utf-8"))
+
+
+def test_homegate_parser_raises_readable_error_for_challenge_fixture() -> None:
+    scraper = HomegateCachedHtmlScraper(html_path=CHALLENGE_FIXTURE)
+    with pytest.raises(HomegateParseError, match="challenge page detected"):
+        scraper.parse_html(CHALLENGE_FIXTURE.read_text(encoding="utf-8"))
 
 
 def test_homegate_parser_handles_missing_fields_without_crash(tmp_path: Path) -> None:
@@ -91,6 +106,43 @@ def test_homegate_parser_land_url_kind_forces_terrain() -> None:
     assert len(listings) == 3
     assert all(item.property_type == "terrain" for item in listings)
     assert all(item.raw_data.get("url_kind") == "land" for item in listings)
+
+
+def test_detect_homegate_challenge_html() -> None:
+    html = CHALLENGE_FIXTURE.read_text(encoding="utf-8")
+    detected, reason = detect_homegate_challenge_html(html)
+    assert detected is True
+    assert reason is not None
+
+
+def test_homegate_parser_parses_initial_state_residential_fixture() -> None:
+    scraper = HomegateCachedHtmlScraper(
+        html_path=INITIAL_STATE_RESIDENTIAL_FIXTURE,
+        source="test_homegate_initial_state_res",
+        base_url="https://www.homegate.ch",
+        url_kind="residential",
+    )
+    listings = scraper.parse_html(INITIAL_STATE_RESIDENTIAL_FIXTURE.read_text(encoding="utf-8"))
+    assert len(listings) == 2
+    assert listings[0].raw_data.get("parser_strategy") == "initial_state_json"
+    assert listings[0].property_type in {"appartement", "maison"}
+    assert listings[0].raw_data.get("source_category") == "residential"
+
+
+def test_homegate_parser_parses_initial_state_land_fixture() -> None:
+    scraper = HomegateCachedHtmlScraper(
+        html_path=INITIAL_STATE_LAND_FIXTURE,
+        source="test_homegate_initial_state_land",
+        base_url="https://www.homegate.ch",
+        url_kind="land",
+    )
+    listings = scraper.parse_html(INITIAL_STATE_LAND_FIXTURE.read_text(encoding="utf-8"))
+    assert len(listings) == 1
+    first = listings[0]
+    assert first.property_type == "terrain"
+    assert first.raw_data.get("parser_strategy") == "initial_state_json"
+    assert first.raw_data.get("url_kind") == "land"
+    assert first.raw_data.get("source_category") == "land"
 
 
 @pytest.mark.asyncio

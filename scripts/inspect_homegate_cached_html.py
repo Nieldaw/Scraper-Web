@@ -15,7 +15,11 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
+from immo_ne_collector.scrapers.homegate import (
+    HomegateCachedHtmlScraper,
+    HomegateParseError,
+    detect_homegate_challenge_html,
+)
 from immo_ne_collector.services.normalization import normalize_raw_listing
 from immo_ne_collector.services.sitn import assess_sitn_eligibility
 
@@ -33,6 +37,7 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.homegate.ch"
         return 1
 
     html = path.read_text(encoding="utf-8")
+    challenge_detected, challenge_reason = detect_homegate_challenge_html(html)
     soup = BeautifulSoup(html, "html.parser")
 
     links = [a.get("href", "").strip() for a in soup.select("a[href]")]
@@ -41,6 +46,9 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.homegate.ch"
 
     print(f"File: {path}")
     print(f"File size: {path.stat().st_size} bytes")
+    print(f"Challenge detected: {challenge_detected}")
+    if challenge_reason:
+        print(f"Challenge reason: {challenge_reason}")
     print(f"Total links found: {len(links)}")
     print(
         f"Candidate listing links found: {len(candidate_links)} "
@@ -88,6 +96,7 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.homegate.ch"
     transaction_counts = Counter(
         str(item.raw_data.get("transaction_type", "unknown")) for item in raw_listings
     )
+    parser_strategy_counts = Counter(str(item.raw_data.get("parser_strategy", "unknown")) for item in raw_listings)
 
     with_price = sum(1 for item in normalized if item.price_chf is not None)
     with_rooms = sum(1 for item in normalized if item.rooms is not None)
@@ -104,6 +113,7 @@ def inspect_cached_html(path: Path, *, base_url: str = "https://www.homegate.ch"
     print(f"- sale: {transaction_counts.get('sale', 0)}")
     print(f"- rent: {transaction_counts.get('rent', 0)}")
     print(f"- unknown: {transaction_counts.get('unknown', 0)}")
+    print(f"- parser strategies: {dict(parser_strategy_counts)}")
     print(f"- with price: {with_price}")
     print(f"- with rooms: {with_rooms}")
     print(f"- with area: {with_area}")

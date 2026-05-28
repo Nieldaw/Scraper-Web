@@ -4,6 +4,7 @@ import re
 import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -14,6 +15,23 @@ from immo_ne_collector.services.source_config import infer_detected_canton
 
 class HomegateParseError(RuntimeError):
     pass
+
+
+HOMEGATE_CHALLENGE_MARKERS: tuple[str, ...] = (
+    "just a moment",
+    "checking your browser",
+    "cloudflare",
+    "cf-browser-verification",
+    "challenge-platform",
+)
+
+
+def detect_homegate_challenge_html(html_text: str) -> tuple[bool, str | None]:
+    lowered = html_text.lower()
+    for marker in HOMEGATE_CHALLENGE_MARKERS:
+        if marker in lowered:
+            return True, marker
+    return False, None
 
 
 class HomegateCachedHtmlScraper(BaseScraper):
@@ -41,12 +59,34 @@ class HomegateCachedHtmlScraper(BaseScraper):
         return self.parse_html(html_text)
 
     def parse_html(self, html_text: str) -> list[RawListing]:
+        challenge_detected, challenge_reason = detect_homegate_challenge_html(html_text)
+        if challenge_detected:
+            raise HomegateParseError(
+                f"Homegate challenge page detected ({challenge_reason}). "
+                "Cached HTML is not directly parsable without anti-bot bypass, which is disabled in MVP."
+            )
+
         soup = BeautifulSoup(html_text, "html.parser")
         page_context = self._detect_page_transaction_context(soup)
         fetched_at = datetime.now(UTC)
+        initial_state_items = self._extract_initial_state_items(html_text)
+
+        listings: list[RawListing] = []
+        if initial_state_items:
+            for idx, item in enumerate(initial_state_items, start=1):
+                listing = self._raw_listing_from_initial_state(
+                    item=item,
+                    idx=idx,
+                    page_context=page_context,
+                    fetched_at=fetched_at,
+                )
+                if listing is not None:
+                    listings.append(listing)
+
+        if listings:
+            return listings
 
         json_ld_items = self._extract_json_ld_items(soup)
-        listings: list[RawListing] = []
 
         if json_ld_items:
             for idx, item in enumerate(json_ld_items, start=1):
@@ -65,7 +105,8 @@ class HomegateCachedHtmlScraper(BaseScraper):
         cards, strategy = self._find_listing_cards(soup)
         if not cards:
             raise HomegateParseError(
-                "No Homegate listing cards found. Tried JSON-LD ItemList and selectors: "
+                "No Homegate listing cards found and window.__INITIAL_STATE__ is missing or not exploitable. "
+                "Tried JSON-LD ItemList and selectors: "
                 "article[data-test='result-item'], article[data-testid='result-item'], "
                 "div[data-test='result-item'], li[data-test='result-item']."
             )
@@ -116,8 +157,10 @@ class HomegateCachedHtmlScraper(BaseScraper):
                         "card_index": idx,
                         "parser": "homegate_cached_html",
                         "strategy": strategy,
+                        "parser_strategy": "html_fixture_fallback",
                         "page_transaction_context": page_context,
                         "transaction_type": transaction_type,
+                        "challenge_detected": False,
                         "detected_canton": detected_canton,
                         "detected_canton_reason": detected_canton_reason,
                         "url_kind": self.url_kind,
@@ -231,8 +274,93 @@ class HomegateCachedHtmlScraper(BaseScraper):
                 "card_index": idx,
                 "parser": "homegate_cached_html",
                 "strategy": "json_ld_item_list",
+                "parser_strategy": "json_ld_item_list",
                 "page_transaction_context": page_context,
                 "transaction_type": transaction_type,
+                "challenge_detected": False,
+                "detected_canton": detected_canton,
+                "detected_canton_reason": detected_canton_reason,
+                "url_kind": self.url_kind,
+                "source_category": self.url_kind,
+            },
+            fetched_at=fetched_at,
+        )
+
+    def _raw_listing_from_initial_state(
+        self,
+        *,
+        item: dict[str, Any],
+        idx: int,
+        page_context: str,
+        fetched_at: datetime,
+    ) -> RawListing | None:
+        url_value = self._extract_url_from_initial_state(item)
+        if url_value is None:
+            return None
+        url = urljoin(self.base_url, url_value)
+
+        title = self._clean_text(self._coerce_str(self._extract_first_field(item, {"title", "name", "headline"})))
+        description = self._clean_text(
+            self._coerce_str(self._extract_first_field(item, {"description", "summary", "shortDescription"}))
+        )
+
+        price_value = self._extract_first_field(item, {"price", "pricevalue", "totalprice", "amount"})
+        rooms_value = self._extract_first_field(item, {"rooms", "numberofrooms", "roomcount"})
+        area_value = self._extract_first_field(item, {"livingarea", "surface", "area", "livingareasqm"})
+        city_value = self._extract_first_field(item, {"city", "locality", "town"})
+        postal_value = self._extract_first_field(item, {"postalcode", "zip", "zipcode"})
+        address_value = self._extract_first_field(item, {"address", "street", "streetaddress"})
+        property_type_value = self._extract_first_field(item, {"propertytype", "category", "listingtype", "type"})
+        listing_id_value = self._extract_first_field(item, {"id", "listingid", "advertid", "objectid", "externalid"})
+
+        property_type = self._resolve_property_type(
+            href=urlparse(url).path,
+            title=title,
+            property_type_hint=self._coerce_str(property_type_value),
+        )
+        transaction_type = self._classify_transaction_type(
+            href=urlparse(url).path,
+            title=title,
+            description=description,
+            card_text="",
+            page_context=page_context,
+        )
+
+        price_raw = self._format_price(price_value)
+        rooms_raw = self._format_rooms(rooms_value)
+        living_area_raw = self._format_area(area_value)
+        city_raw = self._clean_text(self._coerce_str(city_value))
+        postal_code_raw = self._extract_postal_code(self._coerce_str(postal_value))
+        address_raw = self._clean_text(self._coerce_str(address_value))
+        source_listing_id = self._normalize_source_listing_id(listing_id_value) or self._extract_listing_id_from_url(url)
+        detected_canton, detected_canton_reason = infer_detected_canton(
+            url=url,
+            city=city_raw,
+            postal_code=postal_code_raw,
+        )
+
+        return RawListing(
+            source=self.source,
+            source_listing_id=source_listing_id,
+            url=url,
+            title=title,
+            property_type=property_type,
+            price_raw=price_raw,
+            rooms_raw=rooms_raw,
+            living_area_raw=living_area_raw,
+            address_raw=address_raw,
+            city_raw=city_raw,
+            postal_code_raw=postal_code_raw,
+            description_raw=description,
+            raw_data={
+                "fixture_or_cache_path": str(self.html_path),
+                "card_index": idx,
+                "parser": "homegate_cached_html",
+                "strategy": "initial_state_json",
+                "parser_strategy": "initial_state_json",
+                "page_transaction_context": page_context,
+                "transaction_type": transaction_type,
+                "challenge_detected": False,
                 "detected_canton": detected_canton,
                 "detected_canton_reason": detected_canton_reason,
                 "url_kind": self.url_kind,
@@ -389,9 +517,24 @@ class HomegateCachedHtmlScraper(BaseScraper):
         digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
         return f"url_{digest}"
 
-    def _extract_property_type(self, *, href: str, title: str | None) -> str | None:
+    def _extract_property_type(
+        self,
+        *,
+        href: str,
+        title: str | None,
+        property_type_hint: str | None = None,
+    ) -> str | None:
         lowered_href = self._normalize_text(href)
         lowered_title = self._normalize_text(title)
+        lowered_hint = self._normalize_text(property_type_hint)
+
+        if lowered_hint:
+            if any(token in lowered_hint for token in ("terrain", "land", "plot", "parcelle")):
+                return "terrain"
+            if any(token in lowered_hint for token in ("appartement", "apartment", "wohnung")):
+                return "appartement"
+            if any(token in lowered_hint for token in ("maison", "house", "villa", "haus")):
+                return "maison"
 
         if "/terrain/" in lowered_href or " terrain " in f" {lowered_title} ":
             return "terrain"
@@ -401,10 +544,16 @@ class HomegateCachedHtmlScraper(BaseScraper):
             return "maison"
         return None
 
-    def _resolve_property_type(self, *, href: str, title: str | None) -> str | None:
+    def _resolve_property_type(
+        self,
+        *,
+        href: str,
+        title: str | None,
+        property_type_hint: str | None = None,
+    ) -> str | None:
         if self.url_kind == "land":
             return "terrain"
-        return self._extract_property_type(href=href, title=title)
+        return self._extract_property_type(href=href, title=title, property_type_hint=property_type_hint)
 
     def _detect_page_transaction_context(self, soup: BeautifulSoup) -> str:
         title_text = soup.title.get_text(" ", strip=True) if soup.title else ""
@@ -520,3 +669,234 @@ class HomegateCachedHtmlScraper(BaseScraper):
             return None
         street = self._clean_text(address.get("streetAddress"))
         return street
+
+    @staticmethod
+    def _coerce_str(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            cleaned = " ".join(value.split()).strip()
+            return cleaned or None
+        if isinstance(value, int | float):
+            return str(value)
+        return None
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, int | float):
+            return float(value)
+        if isinstance(value, str):
+            normalized = value.strip().replace("'", "").replace(" ", "").replace(",", ".")
+            if not normalized:
+                return None
+            try:
+                return float(normalized)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _normalize_source_listing_id(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return cleaned or None
+        return None
+
+    @staticmethod
+    def _extract_postal_code(value: str | None) -> str | None:
+        if not value:
+            return None
+        match = re.search(r"\b(\d{4})\b", value)
+        if match:
+            return match.group(1)
+        return None
+
+    def _format_price(self, value: Any) -> str | None:
+        if isinstance(value, dict):
+            for key in ("amount", "value", "price", "total", "salePrice"):
+                if key in value:
+                    return self._format_price(value[key])
+            return None
+        numeric = self._coerce_float(value)
+        if numeric is not None and numeric >= 10000:
+            return f"CHF {int(round(numeric))}"
+        text = self._coerce_str(value)
+        if text and self._looks_like_price(text):
+            return text if "CHF" in text.upper() else f"CHF {text}"
+        return None
+
+    def _format_rooms(self, value: Any) -> str | None:
+        if isinstance(value, dict):
+            for key in ("value", "amount", "rooms"):
+                if key in value:
+                    return self._format_rooms(value[key])
+            return None
+        numeric = self._coerce_float(value)
+        if numeric is None:
+            text = self._coerce_str(value)
+            if text and re.fullmatch(r"\d+(?:[.,]\d+)?", text):
+                numeric = float(text.replace(",", "."))
+        if numeric is None:
+            return None
+        if not (0.5 <= numeric <= 20):
+            return None
+        formatted = str(int(numeric)) if numeric.is_integer() else str(numeric).rstrip("0").rstrip(".")
+        return f"{formatted} pièces"
+
+    def _format_area(self, value: Any) -> str | None:
+        if isinstance(value, dict):
+            for key in ("value", "amount", "sqm", "squareMeters", "area"):
+                if key in value:
+                    return self._format_area(value[key])
+            return None
+        numeric = self._coerce_float(value)
+        if numeric is None:
+            text = self._coerce_str(value)
+            if text and re.fullmatch(r"\d+(?:[.,]\d+)?", text):
+                numeric = float(text.replace(",", "."))
+        if numeric is None:
+            return None
+        if not (10 <= numeric <= 10000):
+            return None
+        formatted = str(int(numeric)) if numeric.is_integer() else str(numeric).rstrip("0").rstrip(".")
+        return f"{formatted} m²"
+
+    def _extract_url_from_initial_state(self, item: dict[str, Any]) -> str | None:
+        direct = self._extract_url_from_initial_state_direct(item)
+        if direct:
+            return direct
+        for key in ("url", "listingUrl", "detailUrl", "href", "path"):
+            value = self._extract_first_field(item, {self._normalize_key(key)})
+            text = self._coerce_str(value)
+            if not text:
+                continue
+            if text.startswith("/") or text.startswith("http://") or text.startswith("https://"):
+                return text
+        return None
+
+    def _extract_url_from_initial_state_direct(self, item: dict[str, Any]) -> str | None:
+        for key in ("url", "listingUrl", "detailUrl", "href", "path"):
+            if key not in item:
+                continue
+            text = self._coerce_str(item.get(key))
+            if not text:
+                continue
+            if text.startswith("/") or text.startswith("http://") or text.startswith("https://"):
+                return text
+        return None
+
+    def _extract_first_field(self, data: Any, keys: set[str]) -> Any:
+        if isinstance(data, dict):
+            for raw_key, value in data.items():
+                normalized_key = self._normalize_key(str(raw_key))
+                if normalized_key in keys:
+                    return value
+                nested = self._extract_first_field(value, keys)
+                if nested is not None:
+                    return nested
+        elif isinstance(data, list):
+            for item in data:
+                nested = self._extract_first_field(item, keys)
+                if nested is not None:
+                    return nested
+        return None
+
+    @staticmethod
+    def _normalize_key(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", value.lower())
+
+    def _extract_initial_state_items(self, html_text: str) -> list[dict[str, Any]]:
+        payload = self._extract_initial_state_payload(html_text)
+        if payload is None:
+            return []
+        return self._find_initial_state_listing_nodes(payload)
+
+    def _extract_initial_state_payload(self, html_text: str) -> dict[str, Any] | None:
+        marker = "window.__INITIAL_STATE__"
+        idx = html_text.find(marker)
+        if idx == -1:
+            return None
+        eq_idx = html_text.find("=", idx)
+        if eq_idx == -1:
+            return None
+        brace_start = html_text.find("{", eq_idx)
+        if brace_start == -1:
+            return None
+        brace_end = self._find_balanced_json_end(html_text, brace_start)
+        if brace_end is None:
+            return None
+        candidate = html_text[brace_start : brace_end + 1]
+        try:
+            loaded = json.loads(candidate)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(loaded, dict):
+            return loaded
+        return None
+
+    @staticmethod
+    def _find_balanced_json_end(text: str, start: int) -> int | None:
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == "\"":
+                    in_string = False
+                continue
+            if ch == "\"":
+                in_string = True
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return idx
+        return None
+
+    def _find_initial_state_listing_nodes(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        stack: list[Any] = [payload]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, dict):
+                url = self._extract_url_from_initial_state_direct(current)
+                title = next(
+                    (
+                        self._coerce_str(current.get(key))
+                        for key in ("title", "name", "headline")
+                        if self._coerce_str(current.get(key))
+                    ),
+                    None,
+                )
+                if url and title:
+                    items.append(current)
+                    continue
+                for value in current.values():
+                    if isinstance(value, dict | list):
+                        stack.append(value)
+            elif isinstance(current, list):
+                for value in current:
+                    if isinstance(value, dict | list):
+                        stack.append(value)
+        deduped: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        for item in items:
+            url = self._extract_url_from_initial_state(item)
+            if not url or url in seen_urls:
+                continue
+            seen_urls.add(url)
+            deduped.append(item)
+        return deduped

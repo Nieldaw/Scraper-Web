@@ -23,7 +23,11 @@ if str(SRC) not in sys.path:
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
-from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
+from immo_ne_collector.scrapers.homegate import (
+    HomegateCachedHtmlScraper,
+    HomegateParseError,
+    detect_homegate_challenge_html,
+)
 from immo_ne_collector.scrapers.http_fetcher import (
     ScraperHTTPError,
     ScraperTimeoutError,
@@ -51,6 +55,13 @@ from immo_ne_collector.services.source_config import (
 
 MAX_ALLOWED_PAGES = 10
 SUSPECT_NPA_PRICE_VALUES = {Decimal("2000"), Decimal("2300"), Decimal("2400")}
+HOMEGATE_DISABLED_REASON = "HOMEGATE_DISABLED_ANTI_BOT_RISK"
+HOMEGATE_CHALLENGE_REASON = "HOMEGATE_CHALLENGE_DETECTED"
+HOMEGATE_HTTP_403_REASON = "HOMEGATE_HTTP_403"
+HOMEGATE_HTTP_429_REASON = "HOMEGATE_HTTP_429"
+HOMEGATE_TIMEOUT_REASON = "HOMEGATE_TIMEOUT"
+HOMEGATE_NO_LISTINGS_REASON = "HOMEGATE_NO_LISTINGS_FOUND"
+HOMEGATE_INITIAL_STATE_MISSING_REASON = "HOMEGATE_INITIAL_STATE_MISSING"
 
 
 class AuditPageRow(NamedTuple):
@@ -142,6 +153,14 @@ def _build_fetch_safety(timeout: float | None, retries: int | None) -> SafetyCon
         max_retries=retries if retries is not None else 1,
         min_interval_seconds=1.0,
     )
+
+
+def _homegate_http_reason(status_code: int) -> str:
+    if status_code == 403:
+        return HOMEGATE_HTTP_403_REASON
+    if status_code == 429:
+        return HOMEGATE_HTTP_429_REASON
+    return f"HOMEGATE_HTTP_{status_code}"
 
 
 def _cache_lookup_key(url: str) -> tuple[str, str, str]:
@@ -469,13 +488,23 @@ async def _collect_source_audit_rows(
                 fetched_pages += 1
         except ScraperHTTPError as exc:
             failed_page = page_number
-            if source == "lookmove":
+            if source in {"lookmove", "homegate"}:
+                warning_label = "Lookmove" if source == "lookmove" else "Homegate"
+                warning_hint = "Use cache or retry later."
+                if source == "homegate":
+                    warning_hint = (
+                        "Likely anti-bot/challenge in HTTP simple mode. Source remains prudently disabled by default."
+                    )
                 source_status = "WARNING"
                 stopped_at_page = failed_page
-                stopped_reason = f"HTTP_{exc.status_code}"
+                stopped_reason = (
+                    _homegate_http_reason(exc.status_code)
+                    if source == "homegate"
+                    else f"HTTP_{exc.status_code}"
+                )
                 source_warnings.append(
-                    f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
-                    "Use cache or retry later."
+                    f"{warning_label} pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
+                    f"{warning_hint}"
                 )
                 rows.append(
                     AuditPageRow(
@@ -501,8 +530,8 @@ async def _collect_source_audit_rows(
                         error_count=0,
                         warning_count=1,
                         warnings=(
-                            f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
-                            "Use cache or retry later."
+                            f"{warning_label} pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
+                            f"{warning_hint}"
                         ),
                         errors="",
                         source_status=source_status,
@@ -557,12 +586,18 @@ async def _collect_source_audit_rows(
             break
         except ScraperTimeoutError:
             failed_page = page_number
-            if source == "lookmove":
+            if source in {"lookmove", "homegate"}:
+                warning_label = "Lookmove" if source == "lookmove" else "Homegate"
+                warning_hint = "Use cache or retry later."
+                if source == "homegate":
+                    warning_hint = (
+                        "Likely anti-bot/challenge in HTTP simple mode. Source remains prudently disabled by default."
+                    )
                 source_status = "WARNING"
                 stopped_at_page = failed_page
-                stopped_reason = "TIMEOUT"
+                stopped_reason = HOMEGATE_TIMEOUT_REASON if source == "homegate" else "TIMEOUT"
                 source_warnings.append(
-                    f"Lookmove pagination stopped at page {failed_page}: TIMEOUT. Use cache or retry later."
+                    f"{warning_label} pagination stopped at page {failed_page}: TIMEOUT. {warning_hint}"
                 )
                 rows.append(
                     AuditPageRow(
@@ -588,8 +623,8 @@ async def _collect_source_audit_rows(
                         error_count=0,
                         warning_count=1,
                         warnings=(
-                            f"Lookmove pagination stopped at page {failed_page}: TIMEOUT. "
-                            "Use cache or retry later."
+                            f"{warning_label} pagination stopped at page {failed_page}: TIMEOUT. "
+                            f"{warning_hint}"
                         ),
                         errors="",
                         source_status=source_status,
@@ -656,6 +691,48 @@ async def _collect_source_audit_rows(
         if cache_path is None:
             errors.append(f"{source}: page {page_number} cache unavailable.")
         else:
+            if source == "homegate":
+                challenge_detected, challenge_reason = detect_homegate_challenge_html(html)
+                if challenge_detected:
+                    source_status = "WARNING"
+                    stopped_at_page = page_number
+                    stopped_reason = HOMEGATE_CHALLENGE_REASON
+                    warning_text = (
+                        f"homegate: challenge detected on page={page_number} "
+                        f"({challenge_reason}); page not parsable in prudent mode."
+                    )
+                    warnings.append(warning_text)
+                    rows.append(
+                        AuditPageRow(
+                            source=source,
+                            url_kind=url_kind,
+                            canton=canton,
+                            page_requested=page_number,
+                            page_parsed="no",
+                            url_called=url,
+                            http_status=status,
+                            html_size_bytes=html_size,
+                            cache_path=str(cache_path),
+                            detected_total=0,
+                            detected_sale=0,
+                            detected_rent=0,
+                            detected_unknown=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            error_count=0,
+                            warning_count=len(warnings),
+                            warnings=" | ".join(warnings),
+                            errors="",
+                            source_status=source_status,
+                            stopped_at_page=stopped_at_page,
+                            pagination_stopped_reason=stopped_reason,
+                        )
+                    )
+                    break
             scraper_cls_by_source = {
                 "anibis": AnibisCachedHtmlScraper,
                 "lookmove": LookmoveCachedHtmlScraper,
@@ -708,7 +785,21 @@ async def _collect_source_audit_rows(
                 if remaining is not None:
                     remaining = max(0, remaining - filtered_batch.collected_count)
             except parse_error_cls as exc:
-                errors.append(f"{source}: parse error page={page_number}: {exc}")
+                if source == "homegate":
+                    source_status = "WARNING"
+                    stopped_at_page = page_number
+                    message = str(exc)
+                    if "challenge page detected" in message.lower():
+                        stopped_reason = HOMEGATE_CHALLENGE_REASON
+                    elif "initial_state" in message.lower() or "__initial_state__" in message.lower():
+                        stopped_reason = HOMEGATE_INITIAL_STATE_MISSING_REASON
+                    elif "no homegate listing cards found" in message.lower():
+                        stopped_reason = HOMEGATE_NO_LISTINGS_REASON
+                    else:
+                        stopped_reason = "HOMEGATE_PARSE_WARNING"
+                    warnings.append(f"homegate: parse warning page={page_number}: {exc}")
+                else:
+                    errors.append(f"{source}: parse error page={page_number}: {exc}")
 
         rows.append(
             AuditPageRow(
@@ -933,6 +1024,7 @@ async def _run(args: argparse.Namespace) -> int:
 
             if not source_config.enabled:
                 message = source_config.note or "source disabled"
+                disabled_reason = HOMEGATE_DISABLED_REASON if source == "homegate" else "SOURCE_DISABLED"
                 source_statuses.append("WARNING")
                 top_warnings.append(f"{canton}/{source}: disabled ({message})")
                 if not source_urls:
@@ -963,7 +1055,7 @@ async def _run(args: argparse.Namespace) -> int:
                             errors="",
                             source_status="WARNING",
                             stopped_at_page=None,
-                            pagination_stopped_reason="SOURCE_DISABLED",
+                            pagination_stopped_reason=disabled_reason,
                         )
                     )
                 for source_url in source_urls:
@@ -994,7 +1086,7 @@ async def _run(args: argparse.Namespace) -> int:
                             errors="",
                             source_status="WARNING",
                             stopped_at_page=None,
-                            pagination_stopped_reason="SOURCE_DISABLED",
+                            pagination_stopped_reason=disabled_reason,
                         )
                     )
                 continue

@@ -116,7 +116,10 @@ def test_run_rejects_unknown_canton() -> None:
 
 def test_run_homegate_disabled_source_returns_warning_not_fail(monkeypatch, tmp_path: Path) -> None:
     parser = MODULE._build_parser()
-    args = parser.parse_args(["--canton", "NE", "--sources", "homegate", "--max-pages", "1"])
+    output_path = tmp_path / "audit_report.csv"
+    args = parser.parse_args(
+        ["--canton", "NE", "--sources", "homegate", "--max-pages", "1", "--output", str(output_path)]
+    )
 
     async def fake_generate_exports(_canton):
         from types import SimpleNamespace
@@ -129,10 +132,13 @@ def test_run_homegate_disabled_source_returns_warning_not_fail(monkeypatch, tmp_
         )
 
     monkeypatch.setattr(MODULE, "_generate_exports", fake_generate_exports)
-    monkeypatch.setattr(MODULE, "_write_audit_report", lambda *a, **k: None)
-
     rc = asyncio.run(MODULE._run(args))
     assert rc == 0
+    with output_path.open("r", encoding="utf-8", newline="") as file_obj:
+        rows = list(csv.DictReader(file_obj))
+    assert rows
+    assert all(row["source_status"] == "WARNING" for row in rows)
+    assert all(row["pagination_stopped_reason"] == "HOMEGATE_DISABLED_ANTI_BOT_RISK" for row in rows)
 
 
 def test_lookmove_without_clear_pagination_stops_after_page_one(monkeypatch, tmp_path: Path) -> None:
@@ -446,13 +452,159 @@ def test_homegate_http_403_after_success_stops_with_warning(monkeypatch, tmp_pat
 
     assert source_status == "WARNING"
     assert stopped_at_page == 2
-    assert stopped_reason == "HTTP_403"
+    assert stopped_reason == "HOMEGATE_HTTP_403"
     assert rows
     assert rows[-1].warning_count == 1
     assert rows[-1].error_count == 0
     assert fetched_pages == 1
     assert loaded_from_cache == 0
     assert any("pagination stopped at page 2" in w for w in [rows[-1].warnings, *warnings])
+    assert any("anti-bot" in w.lower() for w in [rows[-1].warnings, *warnings])
+
+
+def test_homegate_http_429_first_page_is_warning(monkeypatch) -> None:
+    async def fake_fetch_or_reuse_page(**kwargs):
+        raise MODULE.ScraperHTTPError(source="homegate", status_code=429, url=kwargs["url"])
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="homegate",
+            url_kind="residential",
+            canton="NE",
+            base_url="https://www.homegate.ch/acheter/biens-immobiliers/canton-neuchatel/liste-annonces",
+            max_pages=1,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 1
+    assert stopped_reason == "HOMEGATE_HTTP_429"
+    assert rows[0].pagination_stopped_reason == "HOMEGATE_HTTP_429"
+    assert fetched_pages == 0
+    assert loaded_from_cache == 0
+    assert any("HTTP 429" in w for w in [rows[0].warnings, *warnings])
+
+
+def test_homegate_timeout_first_page_is_warning(monkeypatch) -> None:
+    async def fake_fetch_or_reuse_page(**kwargs):
+        raise MODULE.ScraperTimeoutError("homegate timeout")
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="homegate",
+            url_kind="land",
+            canton="NE",
+            base_url="https://www.homegate.ch/acheter/terrain/canton-neuchatel/liste-annonces",
+            max_pages=1,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 1
+    assert stopped_reason == "HOMEGATE_TIMEOUT"
+    assert rows[0].pagination_stopped_reason == "HOMEGATE_TIMEOUT"
+    assert fetched_pages == 0
+    assert loaded_from_cache == 0
+    assert any("TIMEOUT" in w for w in [rows[0].warnings, *warnings])
+
+
+def test_homegate_challenge_html_detected_as_warning(monkeypatch, tmp_path: Path) -> None:
+    challenge = tmp_path / "homegate_challenge.html"
+    challenge.write_text(
+        (
+            "<html><head><title>Just a moment...</title></head>"
+            "<body><div>Cloudflare</div><div>challenge-platform</div></body></html>"
+        ),
+        encoding="utf-8",
+    )
+
+    async def fake_fetch_or_reuse_page(**kwargs):
+        return ("200", challenge.stat().st_size, challenge, challenge.read_text(encoding="utf-8"), [])
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="homegate",
+            url_kind="residential",
+            canton="NE",
+            base_url="https://www.homegate.ch/acheter/biens-immobiliers/canton-neuchatel/liste-annonces",
+            max_pages=1,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 1
+    assert stopped_reason == "HOMEGATE_CHALLENGE_DETECTED"
+    assert fetched_pages == 1
+    assert loaded_from_cache == 0
+    assert rows
+    assert rows[0].page_parsed == "no"
+    assert rows[0].warning_count > 0
+    assert "challenge detected" in rows[0].warnings.lower()
+    assert warnings == []
+
+
+def test_homegate_empty_html_without_initial_state_gives_explicit_warning(monkeypatch, tmp_path: Path) -> None:
+    empty_path = Path("tests/fixtures/html/homegate_empty_no_initial_state.html")
+    html = empty_path.read_text(encoding="utf-8")
+
+    async def fake_fetch_or_reuse_page(**kwargs):
+        return ("200", len(html.encode("utf-8")), empty_path, html, [])
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="homegate",
+            url_kind="residential",
+            canton="NE",
+            base_url="https://www.homegate.ch/acheter/biens-immobiliers/canton-neuchatel/liste-annonces",
+            max_pages=1,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_reason in {"HOMEGATE_NO_LISTINGS_FOUND", "HOMEGATE_INITIAL_STATE_MISSING"}
+    assert rows
+    assert rows[0].page_parsed == "no"
+    assert rows[0].error_count == 0
+    assert rows[0].warning_count > 0
+    assert "parse warning" in rows[0].warnings.lower()
+    assert fetched_pages == 1
+    assert loaded_from_cache == 0
 
 
 def test_fetch_or_reuse_page_use_cache_skips_fetch(monkeypatch, tmp_path: Path) -> None:
