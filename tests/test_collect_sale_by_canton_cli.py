@@ -46,12 +46,11 @@ def _summary(source: str) -> MODULE.SourceSummary:
     )
 
 
-def test_parser_accepts_canton_sources_and_max_pages() -> None:
+def test_parser_accepts_new_options() -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(
         [
-            "--canton",
-            "NE",
+            "--all-romandie",
             "--sources",
             "anibis,lookmove",
             "--max-pages",
@@ -63,7 +62,8 @@ def test_parser_accepts_canton_sources_and_max_pages() -> None:
             "12",
         ]
     )
-    assert args.canton == "NE"
+    assert args.all_romandie is True
+    assert args.canton is None
     assert args.sources == "anibis,lookmove"
     assert args.max_pages == 2
     assert args.delay_seconds == 1.5
@@ -82,6 +82,28 @@ def test_validate_args_rejects_max_pages_above_limit() -> None:
         raise AssertionError("Expected ValueError")
 
 
+def test_validate_args_requires_canton_or_all_romandie() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args([])
+    try:
+        MODULE._validate_args(args)
+    except ValueError as exc:
+        assert "Either --canton or --all-romandie is required" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_validate_args_rejects_canton_and_all_romandie_together() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--all-romandie"])
+    try:
+        MODULE._validate_args(args)
+    except ValueError as exc:
+        assert "Use either --canton or --all-romandie" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
 def test_run_rejects_unsupported_source() -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(["--canton", "NE", "--sources", "anibis,unknown", "--no-export"])
@@ -89,9 +111,9 @@ def test_run_rejects_unsupported_source() -> None:
     assert rc == 2
 
 
-def test_run_rejects_unconfigured_canton() -> None:
+def test_run_rejects_unknown_canton() -> None:
     parser = MODULE._build_parser()
-    args = parser.parse_args(["--canton", "VD", "--sources", "anibis", "--no-export"])
+    args = parser.parse_args(["--canton", "XX", "--sources", "anibis", "--no-export"])
     rc = asyncio.run(MODULE._run(args))
     assert rc == 2
 
@@ -104,49 +126,84 @@ def test_run_accepts_anibis_and_lookmove(monkeypatch) -> None:
 
     calls: list[str] = []
 
-    async def fake_collect_source(**kwargs):
-        calls.append(kwargs["source"])
-        return _summary(kwargs["source"])
+    async def fake_run_canton(*, canton, sources, args):
+        calls.extend(sources)
+        return [_summary(item) for item in sources], []
 
-    monkeypatch.setattr(MODULE, "_collect_source", fake_collect_source)
+    monkeypatch.setattr(MODULE, "_run_canton", fake_run_canton)
 
     rc = asyncio.run(MODULE._run(args))
     assert rc == 0
     assert calls == ["anibis", "lookmove"]
 
 
-def test_lookmove_partial_403_sets_warning_without_failing_run(monkeypatch) -> None:
+def test_list_config_mode_returns_zero() -> None:
     parser = MODULE._build_parser()
-    args = parser.parse_args(
-        ["--canton", "NE", "--sources", "anibis,lookmove", "--max-pages", "10", "--no-export"]
-    )
+    args = parser.parse_args(["--list-config"])
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+
+
+def test_run_all_romandie_loops_all_cantons(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--all-romandie", "--sources", "lookmove", "--no-export"])
+
+    called_cantons: list[str] = []
+
+    async def fake_run_canton(*, canton, sources, args):
+        called_cantons.append(canton)
+        return [_summary("lookmove")], []
+
+    monkeypatch.setattr(MODULE, "_run_canton", fake_run_canton)
+
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+    assert called_cantons == ["GE", "VD", "NE", "JU", "FR", "VS"]
+
+
+def test_run_handles_disabled_source_as_warning(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "VD", "--sources", "anibis", "--no-export"])
+
+    async def fake_run_canton(*, canton, sources, args):
+        return [
+            MODULE.SourceSummary(
+                source="anibis",
+                requested_pages=1,
+                fetched_pages=0,
+                loaded_from_cache_pages=0,
+                parsed_pages=0,
+                cache_files=[],
+                detected_total=0,
+                kept_canton_count=0,
+                excluded_canton_count=0,
+                tx_sale=0,
+                tx_rent=0,
+                tx_unknown=0,
+                collected_count=0,
+                created_count=0,
+                updated_count=0,
+                unchanged_count=0,
+                errors=[],
+                notes=["disabled"],
+                source_status="WARNING",
+                stopped_at_page=None,
+                pagination_stopped_reason="SOURCE_DISABLED",
+            )
+        ], []
+
+    monkeypatch.setattr(MODULE, "_run_canton", fake_run_canton)
+
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+
+
+def test_run_lookmove_first_page_403_is_warning_not_fail(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--sources", "lookmove", "--no-export"])
 
     async def fake_collect_source(**kwargs):
-        if kwargs["source"] == "anibis":
-            return _summary("anibis")
-        return MODULE.SourceSummary(
-            source="lookmove",
-            requested_pages=10,
-            fetched_pages=4,
-            loaded_from_cache_pages=0,
-            parsed_pages=4,
-            cache_files=[Path("lookmove_p1.html"), Path("lookmove_p2.html"), Path("lookmove_p3.html"), Path("lookmove_p4.html")],
-            detected_total=24,
-            kept_canton_count=15,
-            excluded_canton_count=9,
-            tx_sale=24,
-            tx_rent=0,
-            tx_unknown=0,
-            collected_count=12,
-            created_count=4,
-            updated_count=4,
-            unchanged_count=4,
-            errors=[],
-            notes=["Lookmove pagination stopped at page 5: HTTP 403"],
-            source_status="WARNING",
-            stopped_at_page=5,
-            pagination_stopped_reason="HTTP_403",
-        )
+        raise MODULE.ScraperHTTPError(source="lookmove", status_code=403, url=kwargs["base_url"])
 
     monkeypatch.setattr(MODULE, "_collect_source", fake_collect_source)
 
@@ -158,7 +215,7 @@ def test_generate_exports_by_canton_writes_by_canton_paths(monkeypatch, tmp_path
     called_output_dirs: list[Path] = []
     by_canton_filter_flags: list[bool] = []
 
-    async def fake_export_all_csv(*, output_dir, session=None, property_filter=None):
+    async def fake_export_all_csv(*, output_dir, session=None, property_filter=None, canton=None):
         called_output_dirs.append(output_dir)
         by_canton_filter_flags.append(property_filter is not None)
         output_dir.mkdir(parents=True, exist_ok=True)

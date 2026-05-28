@@ -68,6 +68,41 @@ def test_validate_args_rejects_max_pages_over_limit() -> None:
         raise AssertionError("Expected ValueError")
 
 
+def test_validate_args_requires_canton_or_all_romandie() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args([])
+    try:
+        MODULE._validate_args(args)
+    except ValueError as exc:
+        assert "Either --canton or --all-romandie is required" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_validate_args_rejects_canton_and_all_romandie() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--all-romandie"])
+    try:
+        MODULE._validate_args(args)
+    except ValueError as exc:
+        assert "Use either --canton or --all-romandie" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_resolve_cantons_all_romandie() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--all-romandie"])
+    assert MODULE._resolve_cantons(args) == ["GE", "VD", "NE", "JU", "FR", "VS"]
+
+
+def test_run_rejects_unknown_canton() -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "XX", "--sources", "lookmove"])
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 2
+
+
 def test_lookmove_without_clear_pagination_stops_after_page_one(monkeypatch, tmp_path: Path) -> None:
     cache_file = tmp_path / "lookmove_cache.html"
     cache_file.write_text("<html><body><a href='/foo'>x</a></body></html>", encoding="utf-8")
@@ -326,3 +361,70 @@ def test_fetch_or_reuse_page_use_cache_skips_fetch(monkeypatch, tmp_path: Path) 
     assert path == cache_file
     assert "cached" in html
     assert warnings == []
+
+
+def test_lookmove_http_403_on_first_page_is_warning(monkeypatch) -> None:
+    async def fake_fetch_or_reuse_page(**kwargs):
+        raise MODULE.ScraperHTTPError(source="lookmove", status_code=403, url=kwargs["url"])
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="lookmove",
+            canton="NE",
+            base_url="https://www.lookmove.ch/fr/immobilier/acheter/appartements-maisons%2C3/neuchatel-ne%2C100013",
+            max_pages=3,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 1
+    assert stopped_reason == "HTTP_403"
+    assert rows
+    assert rows[0].warning_count == 1
+    assert rows[0].error_count == 0
+    assert fetched_pages == 0
+    assert loaded_from_cache == 0
+    assert any("Use cache or retry later" in warning for warning in warnings)
+
+
+def test_validate_by_canton_exports_fails_on_out_of_canton_urls(monkeypatch, tmp_path: Path) -> None:
+    export_dir = tmp_path / "data" / "exports" / "by_canton" / "GE"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "master.csv").write_text("property_id\n1\n", encoding="utf-8")
+    (export_dir / "quality_report.csv").write_text("property_id,issue_code\n", encoding="utf-8")
+    (export_dir / "ventes.csv").write_text(
+        "property_id,transaction_type,city,postal_code,source_urls\n"
+        "p1,sale,Geneve,1201,\"[\"\"https://www.lookmove.ch/fr/annonce/acheter/a-vendre-appartement-dans-neuchatel/1\"\"]\"\n",
+        encoding="utf-8",
+    )
+    (export_dir / "deduplication_report.csv").write_text(
+        "property_id,detected_cantons\n"
+        "p1,\"[\"\"GE\"\",\"\"NE\"\"]\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(MODULE, "ROOT", tmp_path)
+
+    warnings, failures = MODULE._validate_by_canton_exports("GE")
+    assert warnings == []
+    joined = " | ".join(failures)
+    assert "out-of-canton" in joined
+    assert "incompatible detected_cantons" in joined
+
+
+def test_global_status_fail_when_hard_failures_present() -> None:
+    status = MODULE._global_status(
+        rows=[],
+        extra_warnings=[],
+        source_statuses=["WARNING"],
+        hard_failures=["strict by-canton failure"],
+    )
+    assert status == "FAIL"

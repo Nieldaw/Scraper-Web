@@ -37,8 +37,11 @@ from immo_ne_collector.services.persistence import persist_collection_batch
 from immo_ne_collector.services.quality import QualityExportResult, export_quality_report_csv
 from immo_ne_collector.services.source_config import (
     CANTON_MATCHERS,
+    ROMANDY_CANTONS,
+    SourceCantonConfig,
     build_canton_property_filter,
-    get_sale_search_url,
+    get_sale_source_config,
+    normalize_detected_canton,
     normalize_canton,
     parse_sources_csv,
 )
@@ -229,8 +232,9 @@ def _write_audit_report(path: Path, rows: list[AuditPageRow]) -> None:
         writer.writerows(row._asdict() for row in rows)
 
 
-def _validate_by_canton_exports(canton: str) -> list[str]:
+def _validate_by_canton_exports(canton: str) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
+    failures: list[str] = []
     export_dir = ROOT / "data" / "exports" / "by_canton" / canton
     ventes_path = export_dir / "ventes.csv"
     quality_path = export_dir / "quality_report.csv"
@@ -238,7 +242,7 @@ def _validate_by_canton_exports(canton: str) -> list[str]:
     dedup_path = export_dir / "deduplication_report.csv"
     for required in (master_path, ventes_path, quality_path, dedup_path):
         if not required.exists():
-            warnings.append(f"Missing by-canton export: {required}")
+            failures.append(f"Missing by-canton export: {required}")
 
     matcher = CANTON_MATCHERS.get(canton)
     if matcher and ventes_path.exists():
@@ -257,9 +261,30 @@ def _validate_by_canton_exports(canton: str) -> list[str]:
                 parsed_urls = []
             for url in parsed_urls:
                 if not matcher(str(url), city, postal_code):
-                    warnings.append(
+                    failures.append(
                         f"by-canton ventes includes out-of-canton source_url={url} property_id={row.get('property_id')}"
                     )
+
+    if dedup_path.exists():
+        with dedup_path.open("r", encoding="utf-8", newline="") as file_obj:
+            rows = list(csv.DictReader(file_obj))
+        for row in rows:
+            detected_cantons: list[str] = []
+            raw_detected = row.get("detected_cantons", "[]")
+            try:
+                parsed_detected = json.loads(raw_detected)
+                if isinstance(parsed_detected, list):
+                    for value in parsed_detected:
+                        normalized = normalize_detected_canton(str(value) if value is not None else None)
+                        detected_cantons.append(normalized)
+            except Exception:
+                continue
+            known_detected = [value for value in detected_cantons if value != "unknown"]
+            if known_detected and any(value != canton for value in known_detected):
+                failures.append(
+                    f"by-canton deduplication_report includes incompatible detected_cantons={known_detected} "
+                    f"for property_id={row.get('property_id')}"
+                )
 
     if quality_path.exists():
         with quality_path.open("r", encoding="utf-8", newline="") as file_obj:
@@ -269,14 +294,19 @@ def _validate_by_canton_exports(canton: str) -> list[str]:
         if missing_addr_rows and not sitn_rows:
             warnings.append("Missing SITN_NOT_ELIGIBLE_ADDRESS issues while ADDRESS_MISSING exists.")
 
-    return warnings
+    return warnings, failures
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Audit contrôlé de collecte vente par canton (Anibis/Lookmove).",
     )
-    parser.add_argument("--canton", required=True, help="Canton cible (ex: NE).")
+    parser.add_argument("--canton", help="Canton cible (ex: NE).")
+    parser.add_argument(
+        "--all-romandie",
+        action="store_true",
+        help="Audit GE, VD, NE, JU, FR, VS dans cet ordre.",
+    )
     parser.add_argument("--sources", default="anibis,lookmove", help="Sources CSV (ex: anibis,lookmove).")
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre max de pages (défaut: 1).")
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source.")
@@ -324,6 +354,10 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--delay-seconds must be >= 0")
     if args.cache_max_age_hours < 1:
         raise ValueError("--cache-max-age-hours must be >= 1")
+    if args.all_romandie and args.canton:
+        raise ValueError("Use either --canton or --all-romandie, not both")
+    if not args.all_romandie and not args.canton:
+        raise ValueError("Either --canton or --all-romandie is required")
 
 
 async def _fetch_or_reuse_page(
@@ -414,12 +448,13 @@ async def _collect_source_audit_rows(
                 fetched_pages += 1
         except ScraperHTTPError as exc:
             failed_page = page_number
-            if source == "lookmove" and failed_page > 1 and rows:
+            if source == "lookmove":
                 source_status = "WARNING"
                 stopped_at_page = failed_page
                 stopped_reason = f"HTTP_{exc.status_code}"
                 source_warnings.append(
-                    f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}"
+                    f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
+                    "Use cache or retry later."
                 )
                 rows.append(
                     AuditPageRow(
@@ -443,7 +478,10 @@ async def _collect_source_audit_rows(
                         unchanged_count=0,
                         error_count=0,
                         warning_count=1,
-                        warnings=f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}",
+                        warnings=(
+                            f"Lookmove pagination stopped at page {failed_page}: HTTP {exc.status_code}. "
+                            "Use cache or retry later."
+                        ),
                         errors="",
                         source_status=source_status,
                         stopped_at_page=stopped_at_page,
@@ -486,11 +524,13 @@ async def _collect_source_audit_rows(
             break
         except ScraperTimeoutError:
             failed_page = page_number
-            if source == "lookmove" and failed_page > 1 and rows:
+            if source == "lookmove":
                 source_status = "WARNING"
                 stopped_at_page = failed_page
                 stopped_reason = "TIMEOUT"
-                source_warnings.append(f"Lookmove pagination stopped at page {failed_page}: TIMEOUT")
+                source_warnings.append(
+                    f"Lookmove pagination stopped at page {failed_page}: TIMEOUT. Use cache or retry later."
+                )
                 rows.append(
                     AuditPageRow(
                         source=source,
@@ -513,7 +553,10 @@ async def _collect_source_audit_rows(
                         unchanged_count=0,
                         error_count=0,
                         warning_count=1,
-                        warnings=f"Lookmove pagination stopped at page {failed_page}: TIMEOUT",
+                        warnings=(
+                            f"Lookmove pagination stopped at page {failed_page}: TIMEOUT. "
+                            "Use cache or retry later."
+                        ),
                         errors="",
                         source_status=source_status,
                         stopped_at_page=stopped_at_page,
@@ -699,6 +742,7 @@ async def _generate_exports(canton: str) -> tuple[list[ExportFileResult], Qualit
             output_dir=by_canton_dir,
             session=session,
             property_filter=canton_filter,
+            canton=canton,
         )
         by_canton_quality = await export_quality_report_csv(
             session,
@@ -709,7 +753,15 @@ async def _generate_exports(canton: str) -> tuple[list[ExportFileResult], Qualit
     return global_exports, global_quality, by_canton_exports, by_canton_quality
 
 
-def _global_status(*, rows: list[AuditPageRow], extra_warnings: list[str], source_statuses: list[str]) -> str:
+def _global_status(
+    *,
+    rows: list[AuditPageRow],
+    extra_warnings: list[str],
+    source_statuses: list[str],
+    hard_failures: list[str],
+) -> str:
+    if hard_failures:
+        return "FAIL"
     error_total = sum(row.error_count for row in rows)
     warning_total = sum(row.warning_count for row in rows) + len(extra_warnings)
     if any(status == "FAIL" for status in source_statuses):
@@ -721,72 +773,172 @@ def _global_status(*, rows: list[AuditPageRow], extra_warnings: list[str], sourc
     return "PASS"
 
 
+def _resolve_cantons(args: argparse.Namespace) -> list[str]:
+    if args.all_romandie:
+        return list(ROMANDY_CANTONS)
+    if args.canton:
+        normalized = normalize_canton(args.canton)
+        if normalized not in ROMANDY_CANTONS:
+            raise ValueError(
+                f"Unsupported canton '{normalized}'. Supported: {', '.join(ROMANDY_CANTONS)}"
+            )
+        return [normalized]
+    return []
+
+
 async def _run(args: argparse.Namespace) -> int:
     try:
         _validate_args(args)
-        canton = normalize_canton(args.canton)
         sources = parse_sources_csv(args.sources)
     except ValueError as exc:
         print(str(exc))
         return 2
 
     try:
-        source_urls = {source: get_sale_search_url(source=source, canton=canton) for source in sources}
+        cantons = _resolve_cantons(args)
     except ValueError as exc:
         print(str(exc))
         return 2
 
     all_rows: list[AuditPageRow] = []
     top_warnings: list[str] = []
+    top_failures: list[str] = []
     source_statuses: list[str] = []
     total_fetched_pages = 0
     total_loaded_from_cache_pages = 0
-    for source in sources:
-        try:
-            (
-                page_rows,
-                source_warnings,
-                source_status,
-                stopped_at_page,
-                stopped_reason,
-                source_fetched_pages,
-                source_loaded_from_cache_pages,
-            ) = await _collect_source_audit_rows(
-                source=source,
-                canton=canton,
-                base_url=source_urls[source],
-                max_pages=args.max_pages,
-                max_listings=args.max_listings,
-                skip_fetch=args.skip_fetch,
-                use_cache=args.use_cache,
-                cache_max_age_hours=args.cache_max_age_hours,
-                timeout=args.timeout,
-                retries=args.retries,
-                delay_seconds=args.delay_seconds,
-            )
-            all_rows.extend(page_rows)
-            top_warnings.extend(source_warnings)
-            source_statuses.append(source_status)
-            total_fetched_pages += source_fetched_pages
-            total_loaded_from_cache_pages += source_loaded_from_cache_pages
-            if source_status == "WARNING" and stopped_at_page is not None and stopped_reason:
-                top_warnings.append(
-                    f"{source} pagination stopped at page {stopped_at_page}: {stopped_reason}"
+    for canton in cantons:
+        for source in sources:
+            try:
+                source_config: SourceCantonConfig = get_sale_source_config(source=source, canton=canton)
+            except ValueError as exc:
+                source_statuses.append("WARNING")
+                top_warnings.append(f"{canton}/{source}: {exc}")
+                all_rows.append(
+                    AuditPageRow(
+                        source=source,
+                        canton=canton,
+                        page_requested=0,
+                        page_parsed="no",
+                        url_called="",
+                        http_status="SKIPPED",
+                        html_size_bytes=0,
+                        cache_path="",
+                        detected_total=0,
+                        detected_sale=0,
+                        detected_rent=0,
+                        detected_unknown=0,
+                        kept_canton_count=0,
+                        excluded_canton_count=0,
+                        collected_count=0,
+                        created_count=0,
+                        updated_count=0,
+                        unchanged_count=0,
+                        error_count=0,
+                        warning_count=1,
+                        warnings=str(exc),
+                        errors="",
+                        source_status="WARNING",
+                        stopped_at_page=None,
+                        pagination_stopped_reason="SOURCE_NOT_CONFIGURED",
+                    )
                 )
+                continue
+
+            if not source_config.enabled or not source_config.url:
+                message = source_config.note or "source disabled"
+                source_statuses.append("WARNING")
+                top_warnings.append(f"{canton}/{source}: disabled ({message})")
+                all_rows.append(
+                    AuditPageRow(
+                        source=source,
+                        canton=canton,
+                        page_requested=0,
+                        page_parsed="no",
+                        url_called="",
+                        http_status="SKIPPED",
+                        html_size_bytes=0,
+                        cache_path="",
+                        detected_total=0,
+                        detected_sale=0,
+                        detected_rent=0,
+                        detected_unknown=0,
+                        kept_canton_count=0,
+                        excluded_canton_count=0,
+                        collected_count=0,
+                        created_count=0,
+                        updated_count=0,
+                        unchanged_count=0,
+                        error_count=0,
+                        warning_count=1,
+                        warnings=message,
+                        errors="",
+                        source_status="WARNING",
+                        stopped_at_page=None,
+                        pagination_stopped_reason="SOURCE_DISABLED",
+                    )
+                )
+                continue
+
+            try:
+                (
+                    page_rows,
+                    source_warnings,
+                    source_status,
+                    stopped_at_page,
+                    stopped_reason,
+                    source_fetched_pages,
+                    source_loaded_from_cache_pages,
+                ) = await _collect_source_audit_rows(
+                    source=source,
+                    canton=canton,
+                    base_url=source_config.url,
+                    max_pages=args.max_pages,
+                    max_listings=args.max_listings,
+                    skip_fetch=args.skip_fetch,
+                    use_cache=args.use_cache,
+                    cache_max_age_hours=args.cache_max_age_hours,
+                    timeout=args.timeout,
+                    retries=args.retries,
+                    delay_seconds=args.delay_seconds,
+                )
+                all_rows.extend(page_rows)
+                top_warnings.extend(source_warnings)
+                source_statuses.append(source_status)
+                total_fetched_pages += source_fetched_pages
+                total_loaded_from_cache_pages += source_loaded_from_cache_pages
+                if source_status == "WARNING" and stopped_at_page is not None and stopped_reason:
+                    top_warnings.append(
+                        f"{canton}/{source} pagination stopped at page {stopped_at_page}: {stopped_reason}"
+                    )
+            except Exception as exc:
+                source_statuses.append("FAIL")
+                top_warnings.append(f"{canton}/{source}: unexpected audit error: {exc}")
+
+        try:
+            global_exports, global_quality, by_canton_exports, by_canton_quality = await _generate_exports(canton)
         except Exception as exc:
-            source_statuses.append("FAIL")
-            top_warnings.append(f"{source}: unexpected audit error: {exc}")
+            print(f"Export error ({canton}): {exc}")
+            return 1
+        export_warnings, export_failures = _validate_by_canton_exports(canton)
+        top_warnings.extend(export_warnings)
+        top_failures.extend(export_failures)
 
-    try:
-        global_exports, global_quality, by_canton_exports, by_canton_quality = await _generate_exports(canton)
-    except Exception as exc:
-        print(f"Export error: {exc}")
-        return 1
+        print(f"Exports ({canton}):")
+        print("Global exports:")
+        for item in [*global_exports, global_quality]:
+            print(f"  - {item.name}: {item.path} ({item.row_count} rows)")
+        print(f"By-canton exports ({canton}):")
+        for item in [*by_canton_exports, by_canton_quality]:
+            print(f"  - {item.name}: {item.path} ({item.row_count} rows)")
 
-    top_warnings.extend(_validate_by_canton_exports(canton))
     _write_audit_report(args.output, all_rows)
 
-    status = _global_status(rows=all_rows, extra_warnings=top_warnings, source_statuses=source_statuses)
+    status = _global_status(
+        rows=all_rows,
+        extra_warnings=top_warnings,
+        source_statuses=source_statuses,
+        hard_failures=top_failures,
+    )
     pages_parsed = sum(1 for row in all_rows if row.page_parsed == "yes")
     detected_total = sum(row.detected_total for row in all_rows)
     collected_total = sum(row.collected_count for row in all_rows)
@@ -794,6 +946,8 @@ async def _run(args: argparse.Namespace) -> int:
 
     print("Audit summary:")
     print(f"- Global status: {status}")
+    print(f"- Cantons requested: {', '.join(cantons)}")
+    print(f"- Cantons treated: {len(cantons)}")
     print(f"- Sources audited: {len(sources)}")
     print(f"- Pages fetched: {total_fetched_pages}")
     print(f"- Pages loaded from cache: {total_loaded_from_cache_pages}")
@@ -802,17 +956,15 @@ async def _run(args: argparse.Namespace) -> int:
     print(f"- Total collected: {collected_total}")
     print(f"- Total errors: {errors_total}")
     print(f"- Audit report: {args.output}")
-    print("Global exports:")
-    for item in [*global_exports, global_quality]:
-        print(f"  - {item.name}: {item.path} ({item.row_count} rows)")
-    print(f"By-canton exports ({canton}):")
-    for item in [*by_canton_exports, by_canton_quality]:
-        print(f"  - {item.name}: {item.path} ({item.row_count} rows)")
 
     if top_warnings:
         print("- Main warnings:")
         for warning in top_warnings[:12]:
             print(f"  - {warning}")
+    if top_failures:
+        print("- Main failures:")
+        for failure in top_failures[:12]:
+            print(f"  - {failure}")
 
     if status == "FAIL":
         return 1

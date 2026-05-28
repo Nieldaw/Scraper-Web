@@ -30,3 +30,21 @@ def test_score_pair_does_not_merge_different_city() -> None:
     b = ListingCandidate(title="Maison", property_type="maison", city="La Chaux-de-Fonds")
     result = score_pair(a, b)
     assert result.should_merge is False
+
+
+def test_score_pair_does_not_merge_when_detected_canton_differs() -> None:
+    a = ListingCandidate(
+        title="Appartement",
+        property_type="appartement",
+        city="Neuchatel",
+        detected_canton="NE",
+    )
+    b = ListingCandidate(
+        title="Appartement",
+        property_type="appartement",
+        city="Geneve",
+        detected_canton="GE",
+    )
+    result = score_pair(a, b)
+    assert result.should_merge is False
+    assert result.reasons == ["canton_mismatch"]

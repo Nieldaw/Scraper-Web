@@ -17,6 +17,7 @@ from immo_ne_collector.scrapers.lookmove_utils import (
     infer_property_type_from_href,
     infer_title_from_href,
 )
+from immo_ne_collector.services.source_config import infer_detected_canton
 
 
 class LookmoveParseError(RuntimeError):
@@ -86,6 +87,11 @@ class LookmoveCachedHtmlScraper(BaseScraper):
                 card_text=card_text,
                 page_context=page_context,
             )
+            detected_canton, detected_canton_reason = infer_detected_canton(
+                url=url,
+                city=city,
+                postal_code=postal_code,
+            )
 
             listings.append(
                 RawListing(
@@ -108,6 +114,8 @@ class LookmoveCachedHtmlScraper(BaseScraper):
                         "strategy": strategy,
                         "page_transaction_context": page_context,
                         "transaction_type": transaction_type,
+                        "detected_canton": detected_canton,
+                        "detected_canton_reason": detected_canton_reason,
                         "detected_title": title,
                         "detected_city": city,
                         "detected_postal_code": postal_code,

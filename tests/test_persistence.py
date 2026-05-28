@@ -29,6 +29,7 @@ def _build_batch(
     city: str = "Neuchatel",
     address_full: str = "Rue du Seyon 12",
     postal_code: str = "2000",
+    raw_data: dict | None = None,
 ) -> CollectionBatch:
     listing = NormalizedListing(
         source=source,
@@ -43,7 +44,7 @@ def _build_batch(
         city=city,
         postal_code=postal_code,
         description=description,
-        raw_data={"test": True},
+        raw_data=raw_data or {"test": True},
         fetched_at=datetime.now(UTC),
         missing_fields=[],
     )
@@ -385,3 +386,39 @@ async def test_persistence_idempotence_is_preserved_after_cross_source_match() -
     assert first_b.created_count == 1
     assert second_b.created_count == 0
     assert second_b.unchanged_count == 1
+
+
+@pytest.mark.asyncio
+async def test_persistence_does_not_merge_when_detected_canton_differs() -> None:
+    source_a = f"test-canton-a-{uuid4().hex[:8]}"
+    source_b = f"test-canton-b-{uuid4().hex[:8]}"
+
+    batch_a = _build_batch(
+        source=source_a,
+        source_listing_id="a-1",
+        title="Appartement 4.5 pieces",
+        city="Commune Test",
+        postal_code=None,
+        raw_data={"transaction_type": "sale", "detected_canton": "NE"},
+    )
+    batch_b = _build_batch(
+        source=source_b,
+        source_listing_id="b-1",
+        title="Appartement 4.5 pieces",
+        city="Commune Test",
+        postal_code=None,
+        raw_data={"transaction_type": "sale", "detected_canton": "GE"},
+    )
+
+    await persist_collection_batch(batch_a)
+    await persist_collection_batch(batch_b)
+
+    async with AsyncSessionLocal() as session:
+        rows = (
+            await session.execute(
+                select(SourceListing).where(SourceListing.source.in_([source_a, source_b]))
+            )
+        ).scalars().all()
+        assert len(rows) == 2
+        property_ids = {row.property_id for row in rows}
+        assert len(property_ids) == 2

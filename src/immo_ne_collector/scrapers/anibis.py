@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from immo_ne_collector.scrapers.base import BaseScraper, RawListing
+from immo_ne_collector.services.source_config import infer_detected_canton
 
 
 class AnibisParseError(RuntimeError):
@@ -59,6 +60,14 @@ class AnibisCachedHtmlScraper(BaseScraper):
                 raise AnibisParseError(f"Missing listing URL in card #{idx}")
             title = self._extract_title(card)
             description = self._extract_description(card)
+            url = urljoin(self.base_url, href)
+            property_type = self._extract_property_type(card, href)
+            price_raw = self._extract_price(card)
+            rooms_raw = self._extract_rooms(card)
+            living_area_raw = self._extract_living_area(card)
+            address_raw = self._extract_address(card)
+            city_raw = self._extract_city(card)
+            postal_code_raw = self._extract_postal_code(card)
             transaction_type = self._classify_transaction_type(
                 href=href,
                 title=title,
@@ -66,20 +75,25 @@ class AnibisCachedHtmlScraper(BaseScraper):
                 card_text=" ".join(self._span_texts(card)),
                 page_context=page_context,
             )
+            detected_canton, detected_canton_reason = infer_detected_canton(
+                url=url,
+                city=city_raw,
+                postal_code=postal_code_raw,
+            )
 
             listings.append(
                 RawListing(
                     source=self.source,
                     source_listing_id=source_listing_id or self._derive_stable_id(href),
-                    url=urljoin(self.base_url, href),
+                    url=url,
                     title=title,
-                    property_type=self._extract_property_type(card, href),
-                    price_raw=self._extract_price(card),
-                    rooms_raw=self._extract_rooms(card),
-                    living_area_raw=self._extract_living_area(card),
-                    address_raw=self._extract_address(card),
-                    city_raw=self._extract_city(card),
-                    postal_code_raw=self._extract_postal_code(card),
+                    property_type=property_type,
+                    price_raw=price_raw,
+                    rooms_raw=rooms_raw,
+                    living_area_raw=living_area_raw,
+                    address_raw=address_raw,
+                    city_raw=city_raw,
+                    postal_code_raw=postal_code_raw,
                     description_raw=description,
                     raw_data={
                         "fixture_or_cache_path": str(self.html_path),
@@ -88,6 +102,8 @@ class AnibisCachedHtmlScraper(BaseScraper):
                         "strategy": strategy,
                         "page_transaction_context": page_context,
                         "transaction_type": transaction_type,
+                        "detected_canton": detected_canton,
+                        "detected_canton_reason": detected_canton_reason,
                     },
                     fetched_at=fetched_at,
                 )

@@ -32,8 +32,11 @@ from immo_ne_collector.services.exports import ExportFileResult, export_all_csv
 from immo_ne_collector.services.persistence import persist_collection_batch
 from immo_ne_collector.services.quality import QualityExportResult, export_quality_report_csv
 from immo_ne_collector.services.source_config import (
+    ROMANDY_CANTONS,
+    SourceCantonConfig,
     build_canton_property_filter,
-    get_sale_search_url,
+    get_sale_source_config,
+    list_sale_source_configs,
     normalize_canton,
     parse_sources_csv,
 )
@@ -147,7 +150,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Collecte multi-source vente par canton configuré (URLs de recherche contrôlées).",
     )
-    parser.add_argument("--canton", required=True, help="Canton cible (ex: NE).")
+    parser.add_argument("--canton", help="Canton cible (ex: NE).")
+    parser.add_argument(
+        "--all-romandie",
+        action="store_true",
+        help="Traiter GE, VD, NE, JU, FR, VS dans cet ordre.",
+    )
+    parser.add_argument(
+        "--list-config",
+        action="store_true",
+        help="Afficher la configuration source/canton (enabled/url/note).",
+    )
     parser.add_argument(
         "--sources",
         default="anibis,lookmove",
@@ -193,6 +206,14 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--delay-seconds must be >= 0")
     if args.cache_max_age_hours < 1:
         raise ValueError("--cache-max-age-hours must be >= 1")
+
+    if args.list_config:
+        return
+
+    if args.all_romandie and args.canton:
+        raise ValueError("Use either --canton or --all-romandie, not both")
+    if not args.all_romandie and not args.canton:
+        raise ValueError("Either --canton or --all-romandie is required")
 
 
 def _build_fetch_safety(timeout: float | None, retries: int | None) -> SafetyConfig:
@@ -440,6 +461,37 @@ async def _collect_source(
     )
 
 
+def _build_disabled_source_summary(
+    *,
+    source: str,
+    max_pages: int,
+    note: str,
+) -> SourceSummary:
+    return SourceSummary(
+        source=source,
+        requested_pages=max_pages,
+        fetched_pages=0,
+        loaded_from_cache_pages=0,
+        parsed_pages=0,
+        cache_files=[],
+        detected_total=0,
+        kept_canton_count=0,
+        excluded_canton_count=0,
+        tx_sale=0,
+        tx_rent=0,
+        tx_unknown=0,
+        collected_count=0,
+        created_count=0,
+        updated_count=0,
+        unchanged_count=0,
+        errors=[],
+        notes=[note],
+        source_status="WARNING",
+        stopped_at_page=None,
+        pagination_stopped_reason="SOURCE_DISABLED",
+    )
+
+
 async def _generate_exports_by_canton(
     *,
     canton: str,
@@ -456,6 +508,7 @@ async def _generate_exports_by_canton(
             output_dir=by_canton_dir,
             session=session,
             property_filter=canton_filter,
+            canton=canton,
         )
         by_canton_quality = await export_quality_report_csv(
             session,
@@ -466,101 +519,332 @@ async def _generate_exports_by_canton(
     return global_exports, global_quality, by_canton_exports, by_canton_quality
 
 
+def _print_source_summary(*, canton: str, summary: SourceSummary) -> None:
+    print(f"- [{canton}/{summary.source}]")
+    print(f"  requested pages: {summary.requested_pages}")
+    print(f"  fetched pages: {summary.fetched_pages}")
+    print(f"  loaded from cache: {summary.loaded_from_cache_pages}")
+    print(f"  parsed pages: {summary.parsed_pages}")
+    print(f"  source status: {summary.source_status}")
+    if summary.stopped_at_page is not None:
+        print(f"  stopped at page: {summary.stopped_at_page}")
+    if summary.pagination_stopped_reason:
+        print(f"  stop reason: {summary.pagination_stopped_reason}")
+    print(f"  cache files: {len(summary.cache_files)}")
+    for cache_path in summary.cache_files:
+        print(f"    - {cache_path}")
+    for note in summary.notes:
+        print(f"  {note}")
+    print(
+        f"  detected total: {summary.detected_total} "
+        f"(sale/rent/unknown={summary.tx_sale}/{summary.tx_rent}/{summary.tx_unknown})"
+    )
+    print(
+        f"  kept canton {canton}: {summary.kept_canton_count} "
+        f"excluded: {summary.excluded_canton_count}"
+    )
+    print(
+        f"  collected={summary.collected_count} "
+        f"created={summary.created_count} "
+        f"updated={summary.updated_count} "
+        f"unchanged={summary.unchanged_count} "
+        f"errors={len(summary.errors)}"
+    )
+
+
+def _print_list_config(*, sources: list[str]) -> None:
+    rows = list_sale_source_configs(cantons=list(ROMANDY_CANTONS), sources=sources)
+    print("Configured source/canton sale URLs:")
+    print("canton | source | enabled | url | note")
+    for row in rows:
+        url = row.url or "-"
+        note = row.note or ""
+        enabled = "true" if row.enabled else "false"
+        print(f"{row.canton} | {row.source} | {enabled} | {url} | {note}")
+
+
+async def _run_canton(
+    *,
+    canton: str,
+    sources: list[str],
+    args: argparse.Namespace,
+) -> tuple[list[SourceSummary], list[str]]:
+    summaries: list[SourceSummary] = []
+    errors: list[str] = []
+
+    print(f"Running canton {canton}...")
+    for source in sources:
+        try:
+            source_config: SourceCantonConfig = get_sale_source_config(source=source, canton=canton)
+        except ValueError as exc:
+            message = str(exc)
+            summaries.append(
+                _build_disabled_source_summary(
+                    source=source,
+                    max_pages=args.max_pages,
+                    note=message,
+                )
+            )
+            continue
+
+        if not source_config.enabled or not source_config.url:
+            note = source_config.note or "source disabled"
+            summaries.append(
+                _build_disabled_source_summary(
+                    source=source,
+                    max_pages=args.max_pages,
+                    note=f"{source} disabled for {canton}: {note}",
+                )
+            )
+            continue
+
+        try:
+            summary = await _collect_source(
+                source=source,
+                canton=canton,
+                base_url=source_config.url,
+                max_pages=args.max_pages,
+                max_listings=args.max_listings,
+                timeout=args.timeout,
+                retries=args.retries,
+                delay_seconds=args.delay_seconds,
+                use_cache=args.use_cache,
+                cache_max_age_hours=args.cache_max_age_hours,
+            )
+            summaries.append(summary)
+        except ScraperHTTPError as exc:
+            if source == "lookmove":
+                summaries.append(
+                    SourceSummary(
+                        source=source,
+                        requested_pages=args.max_pages,
+                        fetched_pages=0,
+                        loaded_from_cache_pages=0,
+                        parsed_pages=0,
+                        cache_files=[],
+                        detected_total=0,
+                        kept_canton_count=0,
+                        excluded_canton_count=0,
+                        tx_sale=0,
+                        tx_rent=0,
+                        tx_unknown=0,
+                        collected_count=0,
+                        created_count=0,
+                        updated_count=0,
+                        unchanged_count=0,
+                        errors=[],
+                        notes=[
+                            f"Lookmove blocked at page 1: HTTP {exc.status_code}, use cache or retry later."
+                        ],
+                        source_status="WARNING",
+                        stopped_at_page=1,
+                        pagination_stopped_reason=f"HTTP_{exc.status_code}",
+                    )
+                )
+                continue
+            failed_summary = SourceSummary(
+                source=source,
+                requested_pages=args.max_pages,
+                fetched_pages=0,
+                loaded_from_cache_pages=0,
+                parsed_pages=0,
+                cache_files=[],
+                detected_total=0,
+                kept_canton_count=0,
+                excluded_canton_count=0,
+                tx_sale=0,
+                tx_rent=0,
+                tx_unknown=0,
+                collected_count=0,
+                created_count=0,
+                updated_count=0,
+                unchanged_count=0,
+                errors=[str(exc)],
+                notes=[f"Collection error on {source}/{canton}: {exc}"],
+                source_status="FAIL",
+                stopped_at_page=1,
+                pagination_stopped_reason=f"HTTP_{exc.status_code}",
+            )
+            summaries.append(failed_summary)
+            errors.append(f"{canton}/{source}: {exc}")
+        except ScraperTimeoutError:
+            if source == "lookmove":
+                summaries.append(
+                    SourceSummary(
+                        source=source,
+                        requested_pages=args.max_pages,
+                        fetched_pages=0,
+                        loaded_from_cache_pages=0,
+                        parsed_pages=0,
+                        cache_files=[],
+                        detected_total=0,
+                        kept_canton_count=0,
+                        excluded_canton_count=0,
+                        tx_sale=0,
+                        tx_rent=0,
+                        tx_unknown=0,
+                        collected_count=0,
+                        created_count=0,
+                        updated_count=0,
+                        unchanged_count=0,
+                        errors=[],
+                        notes=["Lookmove blocked at page 1: TIMEOUT, use cache or retry later."],
+                        source_status="WARNING",
+                        stopped_at_page=1,
+                        pagination_stopped_reason="TIMEOUT",
+                    )
+                )
+                continue
+            failed_summary = SourceSummary(
+                source=source,
+                requested_pages=args.max_pages,
+                fetched_pages=0,
+                loaded_from_cache_pages=0,
+                parsed_pages=0,
+                cache_files=[],
+                detected_total=0,
+                kept_canton_count=0,
+                excluded_canton_count=0,
+                tx_sale=0,
+                tx_rent=0,
+                tx_unknown=0,
+                collected_count=0,
+                created_count=0,
+                updated_count=0,
+                unchanged_count=0,
+                errors=["TIMEOUT"],
+                notes=[f"Collection error on {source}/{canton}: TIMEOUT"],
+                source_status="FAIL",
+                stopped_at_page=1,
+                pagination_stopped_reason="TIMEOUT",
+            )
+            summaries.append(failed_summary)
+            errors.append(f"{canton}/{source}: TIMEOUT")
+        except Exception as exc:
+            failed_summary = SourceSummary(
+                source=source,
+                requested_pages=args.max_pages,
+                fetched_pages=0,
+                loaded_from_cache_pages=0,
+                parsed_pages=0,
+                cache_files=[],
+                detected_total=0,
+                kept_canton_count=0,
+                excluded_canton_count=0,
+                tx_sale=0,
+                tx_rent=0,
+                tx_unknown=0,
+                collected_count=0,
+                created_count=0,
+                updated_count=0,
+                unchanged_count=0,
+                errors=[str(exc)],
+                notes=[f"Collection error on {source}/{canton}: {exc}"],
+                source_status="FAIL",
+                stopped_at_page=None,
+                pagination_stopped_reason="COLLECTION_EXCEPTION",
+            )
+            summaries.append(failed_summary)
+            errors.append(f"{canton}/{source}: {exc}")
+
+    return summaries, errors
+
+
+def _resolve_cantons(args: argparse.Namespace) -> list[str]:
+    if args.all_romandie:
+        return list(ROMANDY_CANTONS)
+    if args.canton:
+        normalized = normalize_canton(args.canton)
+        if normalized not in ROMANDY_CANTONS:
+            raise ValueError(
+                f"Unsupported canton '{normalized}'. Supported: {', '.join(ROMANDY_CANTONS)}"
+            )
+        return [normalized]
+    return []
+
+
 async def _run(args: argparse.Namespace) -> int:
     try:
         _validate_args(args)
-        canton = normalize_canton(args.canton)
         sources = parse_sources_csv(args.sources)
     except ValueError as exc:
         print(str(exc))
         return 2
 
+    if args.list_config:
+        _print_list_config(sources=sources)
+        return 0
+
     try:
-        source_urls = {source: get_sale_search_url(source=source, canton=canton) for source in sources}
+        cantons = _resolve_cantons(args)
     except ValueError as exc:
         print(str(exc))
         return 2
+    all_summaries: dict[str, list[SourceSummary]] = {}
+    hard_errors: list[str] = []
 
-    summaries: list[SourceSummary] = []
-    try:
-        for source in sources:
-            summaries.append(
-                await _collect_source(
-                    source=source,
-                    canton=canton,
-                    base_url=source_urls[source],
-                    max_pages=args.max_pages,
-                    max_listings=args.max_listings,
-                    timeout=args.timeout,
-                    retries=args.retries,
-                    delay_seconds=args.delay_seconds,
-                    use_cache=args.use_cache,
-                    cache_max_age_hours=args.cache_max_age_hours,
-                )
-            )
-    except Exception as exc:
-        print(f"Collection error: {exc}")
-        return 1
-
-    all_errors = [error for summary in summaries for error in summary.errors]
-    any_fail = any(summary.source_status == "FAIL" for summary in summaries)
-    print("Collection summary:")
-    print(f"- Canton: {canton}")
-    print(f"- Sources: {', '.join(sources)}")
-    for summary in summaries:
-        print(f"- [{summary.source}]")
-        print(f"  requested pages: {summary.requested_pages}")
-        print(f"  fetched pages: {summary.fetched_pages}")
-        print(f"  loaded from cache: {summary.loaded_from_cache_pages}")
-        print(f"  parsed pages: {summary.parsed_pages}")
-        print(f"  source status: {summary.source_status}")
-        if summary.stopped_at_page is not None:
-            print(f"  stopped at page: {summary.stopped_at_page}")
-        if summary.pagination_stopped_reason:
-            print(f"  stop reason: {summary.pagination_stopped_reason}")
-        print(f"  cache files: {len(summary.cache_files)}")
-        for cache_path in summary.cache_files:
-            print(f"    - {cache_path}")
-        for note in summary.notes:
-            print(f"  {note}")
-        print(
-            f"  detected total: {summary.detected_total} "
-            f"(sale/rent/unknown={summary.tx_sale}/{summary.tx_rent}/{summary.tx_unknown})"
-        )
-        print(
-            f"  kept canton {canton}: {summary.kept_canton_count} "
-            f"excluded: {summary.excluded_canton_count}"
-        )
-        print(
-            f"  collected={summary.collected_count} "
-            f"created={summary.created_count} "
-            f"updated={summary.updated_count} "
-            f"unchanged={summary.unchanged_count} "
-            f"errors={len(summary.errors)}"
-        )
-
-    if not args.no_export:
+    for canton in cantons:
         try:
-            global_exports, global_quality, by_canton_exports, by_canton_quality = (
-                await _generate_exports_by_canton(canton=canton)
-            )
-        except Exception as exc:
-            print(f"Export error: {exc}")
-            return 1
+            summaries, errors = await _run_canton(canton=canton, sources=sources, args=args)
+        except ValueError as exc:
+            print(f"{canton}: {exc}")
+            return 2
 
-        print("Global exports:")
-        for item in [*global_exports, global_quality]:
-            print(f"- {item.name}: {item.path} ({item.row_count} rows)")
+        all_summaries[canton] = summaries
+        hard_errors.extend(errors)
 
-        print(f"By-canton exports ({canton}):")
-        for item in [*by_canton_exports, by_canton_quality]:
-            print(f"- {item.name}: {item.path} ({item.row_count} rows)")
+        print(f"Collection summary ({canton}):")
+        for summary in summaries:
+            _print_source_summary(canton=canton, summary=summary)
 
-    if all_errors:
+        if not args.no_export:
+            try:
+                global_exports, global_quality, by_canton_exports, by_canton_quality = (
+                    await _generate_exports_by_canton(canton=canton)
+                )
+            except Exception as exc:
+                print(f"Export error for canton {canton}: {exc}")
+                return 1
+
+            print("Global exports:")
+            for item in [*global_exports, global_quality]:
+                print(f"- {item.name}: {item.path} ({item.row_count} rows)")
+
+            print(f"By-canton exports ({canton}):")
+            for item in [*by_canton_exports, by_canton_quality]:
+                print(f"- {item.name}: {item.path} ({item.row_count} rows)")
+
+    total_requested_cantons = len(cantons)
+    treated_cantons = len(all_summaries)
+    total_summaries = [summary for group in all_summaries.values() for summary in group]
+
+    total_fetched = sum(item.fetched_pages for item in total_summaries)
+    total_cached = sum(item.loaded_from_cache_pages for item in total_summaries)
+    total_parsed = sum(item.parsed_pages for item in total_summaries)
+    total_detected = sum(item.detected_total for item in total_summaries)
+    total_collected = sum(item.collected_count for item in total_summaries)
+    total_warnings = sum(1 for item in total_summaries if item.source_status == "WARNING")
+    total_failures = sum(1 for item in total_summaries if item.source_status == "FAIL")
+    all_errors = [error for item in total_summaries for error in item.errors]
+
+    print("Global run summary:")
+    print(f"- Requested cantons: {', '.join(cantons)}")
+    print(f"- Treated cantons: {treated_cantons}/{total_requested_cantons}")
+    print(f"- Sources: {', '.join(sources)}")
+    print(f"- Pages fetched: {total_fetched}")
+    print(f"- Pages loaded from cache: {total_cached}")
+    print(f"- Pages parsed: {total_parsed}")
+    print(f"- Total detected: {total_detected}")
+    print(f"- Total collected: {total_collected}")
+    print(f"- Source warnings: {total_warnings}")
+    print(f"- Source failures: {total_failures}")
+
+    if hard_errors or all_errors:
         print("Errors:")
-        for error in all_errors:
+        for error in [*hard_errors, *all_errors]:
             print(f"- {error}")
-    if any_fail:
+
+    if total_failures > 0:
         return 1
     return 0
 

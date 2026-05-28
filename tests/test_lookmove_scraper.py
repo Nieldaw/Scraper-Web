@@ -30,6 +30,8 @@ async def test_lookmove_parser_extracts_raw_listing_from_fixture() -> None:
     assert first.title == "Appartement 4.5 pièces avec balcon"
     assert first.city_raw == "Neuchâtel"
     assert first.raw_data.get("transaction_type") == "sale"
+    assert first.raw_data.get("detected_canton") == "NE"
+    assert first.raw_data.get("detected_canton_reason") in {"url", "city", "postal_code", "unknown"}
 
 
 def test_lookmove_parser_raises_readable_error_for_unknown_structure(tmp_path: Path) -> None:

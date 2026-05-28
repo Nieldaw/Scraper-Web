@@ -4,6 +4,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import DailyRun, Property, PropertyStatus, SourceListing
@@ -15,6 +16,7 @@ from immo_ne_collector.services.deduplication import (
 )
 from immo_ne_collector.services.normalization import NormalizedListing
 from immo_ne_collector.services.sitn import assess_sitn_eligibility
+from immo_ne_collector.services.source_config import infer_detected_canton, normalize_detected_canton
 from immo_ne_collector.services.statuses import detect_changed_fields
 
 
@@ -73,6 +75,17 @@ def _apply_property_state(property_row: Property, *, address_full: str | None, c
 
 
 def _build_candidate_from_listing(listing: NormalizedListing) -> ListingCandidate:
+    raw_detected = listing.raw_data.get("detected_canton")
+    detected = normalize_detected_canton(raw_detected if isinstance(raw_detected, str) else None)
+    inferred, _ = infer_detected_canton(
+        url=listing.url,
+        city=listing.city,
+        postal_code=listing.postal_code,
+    )
+    if detected != "unknown" and inferred != "unknown" and detected != inferred:
+        detected = inferred
+    elif detected == "unknown":
+        detected = inferred
     return ListingCandidate(
         title=listing.title,
         property_type=listing.property_type,
@@ -81,10 +94,34 @@ def _build_candidate_from_listing(listing: NormalizedListing) -> ListingCandidat
         rooms=listing.rooms,
         living_area_m2=listing.living_area_m2,
         address_full=listing.address_full,
+        detected_canton=detected,
     )
 
 
 def _build_candidate_from_property(property_row: Property) -> ListingCandidate:
+    detected_set: set[str] = set()
+    for listing in property_row.listings:
+        raw_detected = "unknown"
+        if isinstance(listing.raw_data, dict):
+            raw_detected = normalize_detected_canton(listing.raw_data.get("detected_canton"))  # type: ignore[arg-type]
+        inferred, _ = infer_detected_canton(
+            url=listing.url,
+            city=listing.city,
+            postal_code=listing.postal_code,
+        )
+        if raw_detected != "unknown" and inferred != "unknown" and raw_detected != inferred:
+            detected = inferred
+        elif raw_detected != "unknown":
+            detected = raw_detected
+        else:
+            detected = inferred
+        if detected != "unknown":
+            detected_set.add(detected)
+    if len(detected_set) == 1:
+        detected_canton = next(iter(detected_set))
+    else:
+        detected_canton = "unknown"
+
     return ListingCandidate(
         title=property_row.title,
         property_type=property_row.property_type,
@@ -93,6 +130,7 @@ def _build_candidate_from_property(property_row: Property) -> ListingCandidate:
         rooms=property_row.rooms,
         living_area_m2=property_row.living_area_m2,
         address_full=property_row.address_full,
+        detected_canton=detected_canton,
     )
 
 
@@ -128,7 +166,11 @@ async def _find_matched_property(
     session: AsyncSession,
     listing: NormalizedListing,
 ) -> Property | None:
-    all_properties = (await session.execute(select(Property))).scalars().all()
+    all_properties = (
+        await session.execute(
+            select(Property).options(selectinload(Property.listings))
+        )
+    ).scalars().all()
     if not all_properties:
         return None
 

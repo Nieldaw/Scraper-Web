@@ -27,6 +27,8 @@ async def test_anibis_parser_extracts_raw_listing_from_fixture() -> None:
     assert first.url == "https://test-anibis.local/fr/immobilier/anibis-2001"
     assert first.title == "Appartement 4.5 pièces à Neuchâtel"
     assert first.city_raw == "Neuchâtel"
+    assert first.raw_data.get("detected_canton") == "NE"
+    assert first.raw_data.get("detected_canton_reason") in {"url", "city", "postal_code", "unknown"}
 
 
 def test_anibis_parser_raises_readable_error_for_unknown_structure(tmp_path: Path) -> None:

@@ -90,8 +90,8 @@ async def _run(
     )
     print(f"Filter transaction_type: {transaction_type}")
     print(f"Filter canton: {canton if canton else 'none'}")
-    if canton == "NE":
-        print(f"Kept by canton NE: {stats.kept_canton_count}")
+    if canton:
+        print(f"Kept by canton {canton}: {stats.kept_canton_count}")
         print(f"Excluded out of canton: {stats.excluded_canton_count}")
         if stats.excluded_examples:
             print("Examples excluded:")

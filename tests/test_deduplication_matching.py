@@ -51,6 +51,38 @@ def test_decide_property_match_no_match_when_property_type_differs() -> None:
     assert decision.decision == MatchOutcome.NO_MATCH
 
 
+def test_decide_property_match_no_match_when_detected_cantons_differ_ge_ne() -> None:
+    listing = ListingCandidate(
+        city="Geneve",
+        property_type="appartement",
+        detected_canton="GE",
+    )
+    candidate = ListingCandidate(
+        city="Neuchatel",
+        property_type="appartement",
+        detected_canton="NE",
+    )
+    decision = decide_property_match(listing, [(uuid4(), candidate)])
+    assert decision.decision == MatchOutcome.NO_MATCH
+    assert decision.matched_property_id is None
+
+
+def test_decide_property_match_no_match_when_detected_cantons_differ_ne_vs() -> None:
+    listing = ListingCandidate(
+        city="Neuchatel",
+        property_type="appartement",
+        detected_canton="NE",
+    )
+    candidate = ListingCandidate(
+        city="Sion",
+        property_type="appartement",
+        detected_canton="VS",
+    )
+    decision = decide_property_match(listing, [(uuid4(), candidate)])
+    assert decision.decision == MatchOutcome.NO_MATCH
+    assert decision.matched_property_id is None
+
+
 def test_decide_property_match_ambiguous_when_data_is_close_but_insufficient() -> None:
     listing = ListingCandidate(
         title="Appartement centre-ville",

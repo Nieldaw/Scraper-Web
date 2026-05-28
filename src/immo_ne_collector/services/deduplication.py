@@ -15,6 +15,7 @@ class ListingCandidate:
     rooms: Decimal | None = None
     living_area_m2: Decimal | None = None
     address_full: str | None = None
+    detected_canton: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,19 @@ def _relative_close(a: Decimal | None, b: Decimal | None, tolerance: float) -> b
 
 
 def score_pair(a: ListingCandidate, b: ListingCandidate) -> DeduplicationResult:
+    if (
+        a.detected_canton
+        and b.detected_canton
+        and a.detected_canton != "unknown"
+        and b.detected_canton != "unknown"
+        and a.detected_canton != b.detected_canton
+    ):
+        return DeduplicationResult(
+            should_merge=False,
+            score=0.0,
+            reasons=["canton_mismatch"],
+        )
+
     score = 0.0
     weight = 0.0
     reasons: list[str] = []
@@ -103,6 +117,14 @@ class MatchDecision:
 
 def _score_for_match(a: ListingCandidate, b: ListingCandidate) -> tuple[float, list[str], int]:
     reasons: list[str] = []
+    if (
+        a.detected_canton
+        and b.detected_canton
+        and a.detected_canton != "unknown"
+        and b.detected_canton != "unknown"
+        and a.detected_canton != b.detected_canton
+    ):
+        return 0.0, ["canton_mismatch"], 0
 
     if a.city and b.city and a.city.lower() != b.city.lower():
         return 0.0, ["city_mismatch"], 0
@@ -172,7 +194,7 @@ def decide_property_match(
     ranked: list[tuple[UUID, float, list[str], int]] = []
     for property_id, candidate in candidates:
         score, reasons, evidence_count = _score_for_match(listing, candidate)
-        if reasons == ["city_mismatch"] or reasons == ["property_type_mismatch"]:
+        if reasons in (["city_mismatch"], ["property_type_mismatch"], ["canton_mismatch"]):
             continue
         ranked.append((property_id, score, reasons, evidence_count))
 
@@ -181,7 +203,7 @@ def decide_property_match(
             matched_property_id=None,
             score=0.0,
             decision=MatchOutcome.NO_MATCH,
-            reasons=["hard_mismatch_on_city_or_type"],
+            reasons=["hard_mismatch_on_canton_or_city_or_type"],
         )
 
     ranked.sort(key=lambda row: row[1], reverse=True)

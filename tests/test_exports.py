@@ -428,3 +428,94 @@ async def test_export_by_canton_generates_filtered_files(tmp_path: Path) -> None
     ids = {row["property_id"] for row in master_rows}
     assert str(ne_row.id) in ids
     assert all("berne" not in row["city"].lower() for row in master_rows if row["city"])
+
+
+@pytest.mark.asyncio
+async def test_export_by_canton_filters_out_of_canton_source_urls(tmp_path: Path) -> None:
+    token = f"exp-mixed-canton-{uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    property_row = Property(
+        title="Bien mixe historique",
+        property_type="appartement",
+        price_chf=890000,
+        rooms=4.5,
+        living_area_m2=108,
+        address_full="Rue du Seyon 10",
+        city="Neuchatel",
+        postal_code="2000",
+        sources=["anibis_cached", "lookmove_cached"],
+        source_urls=[
+            "https://www.lookmove.ch/fr/annonce/acheter/a-vendre-appartement-dans-neuchatel/1",
+            "https://www.lookmove.ch/fr/annonce/acheter/a-vendre-appartement-dans-geneve/2",
+        ],
+        first_seen_at=now,
+        last_seen_at=now,
+        last_changed_at=now,
+        status=PropertyStatus.ACTIVE,
+        raw_data={"token": token},
+    )
+    async with AsyncSessionLocal() as session:
+        session.add(property_row)
+        await session.flush()
+        session.add(
+            SourceListing(
+                source="anibis_cached",
+                source_listing_id=f"{token}-ne",
+                url="https://www.anibis.ch/fr/vi/neuchatel/appartement/111",
+                title="NE listing",
+                property_type="appartement",
+                price_chf=890000,
+                rooms=4.5,
+                living_area_m2=108,
+                address_full="Rue du Seyon 10",
+                city="Neuchatel",
+                postal_code="2000",
+                description="desc",
+                raw_data={"transaction_type": "sale", "detected_canton": "NE"},
+                first_seen_at=now,
+                last_seen_at=now,
+                collected_at=now,
+                property_id=property_row.id,
+            )
+        )
+        session.add(
+            SourceListing(
+                source="lookmove_cached",
+                source_listing_id=f"{token}-ge",
+                url="https://www.lookmove.ch/fr/annonce/acheter/a-vendre-appartement-dans-geneve/2",
+                title="GE listing",
+                property_type="appartement",
+                price_chf=895000,
+                rooms=4.5,
+                living_area_m2=108,
+                address_full="Rue du Seyon 10",
+                city="Geneve",
+                postal_code="1201",
+                description="desc",
+                raw_data={"transaction_type": "sale", "detected_canton": "GE"},
+                first_seen_at=now,
+                last_seen_at=now,
+                collected_at=now,
+                property_id=property_row.id,
+            )
+        )
+        await session.commit()
+
+    canton_filter = build_canton_property_filter("NE")
+    by_canton_dir = tmp_path / "by_canton" / "NE"
+    async with AsyncSessionLocal() as session:
+        export_results = await export_all_csv(
+            output_dir=by_canton_dir,
+            session=session,
+            property_filter=canton_filter,
+            canton="NE",
+        )
+
+    ventes = next(item for item in export_results if item.name == "VENTES")
+    rows = _read_csv(ventes.path)
+    assert rows
+    selected = next(item for item in rows if item["property_id"] == str(property_row.id))
+    source_urls = json.loads(selected["source_urls"])
+    assert source_urls
+    assert any("/neuchatel/" in url for url in source_urls)
+    assert all("/geneve/" not in url for url in source_urls)
