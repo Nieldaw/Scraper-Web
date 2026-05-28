@@ -141,6 +141,65 @@ def test_run_homegate_disabled_source_returns_warning_not_fail(monkeypatch, tmp_
     assert all(row["pagination_stopped_reason"] == "HOMEGATE_DISABLED_ANTI_BOT_RISK" for row in rows)
 
 
+def test_run_immoscout_disabled_source_returns_warning_not_fail(monkeypatch, tmp_path: Path) -> None:
+    parser = MODULE._build_parser()
+    output_path = tmp_path / "audit_report.csv"
+    args = parser.parse_args(
+        ["--canton", "NE", "--sources", "immoscout", "--max-pages", "1", "--output", str(output_path)]
+    )
+
+    async def fake_generate_exports(_canton):
+        from types import SimpleNamespace
+
+        return (
+            [SimpleNamespace(name="MASTER", path=tmp_path / "master.csv", row_count=0)],
+            SimpleNamespace(name="QUALITY_REPORT", path=tmp_path / "quality.csv", row_count=0),
+            [SimpleNamespace(name="MASTER", path=tmp_path / "by_canton_master.csv", row_count=0)],
+            SimpleNamespace(name="QUALITY_REPORT", path=tmp_path / "by_canton_quality.csv", row_count=0),
+        )
+
+    monkeypatch.setattr(MODULE, "_generate_exports", fake_generate_exports)
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+    with output_path.open("r", encoding="utf-8", newline="") as file_obj:
+        rows = list(csv.DictReader(file_obj))
+    assert rows
+    assert all(row["source_status"] == "WARNING" for row in rows)
+    assert all(row["pagination_stopped_reason"] == "IMMOSCOUT_DISABLED_VALIDATION_REQUIRED" for row in rows)
+
+
+def test_immoscout_http_403_first_page_is_warning(monkeypatch) -> None:
+    async def fake_fetch_or_reuse_page(**kwargs):
+        raise MODULE.ScraperHTTPError(source="immoscout", status_code=403, url=kwargs["url"])
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="immoscout",
+            url_kind="residential",
+            canton="NE",
+            base_url="https://www.immoscout24.ch/fr/immobilier/acheter/canton-neuchatel",
+            max_pages=1,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert rows
+    assert source_status == "WARNING"
+    assert stopped_at_page == 1
+    assert stopped_reason == "IMMOSCOUT_HTTP_403"
+    assert fetched_pages == 0
+    assert loaded_from_cache == 0
+    assert any("ImmoScout pagination stopped at page 1" in warning for warning in warnings)
+
+
 def test_lookmove_without_clear_pagination_stops_after_page_one(monkeypatch, tmp_path: Path) -> None:
     cache_file = tmp_path / "lookmove_cache.html"
     cache_file.write_text("<html><body><a href='/foo'>x</a></body></html>", encoding="utf-8")

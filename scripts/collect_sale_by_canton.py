@@ -20,6 +20,7 @@ if str(SRC) not in sys.path:
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
 from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
+from immo_ne_collector.scrapers.immoscout import ImmoscoutCachedHtmlScraper, ImmoscoutParseError
 from immo_ne_collector.scrapers.http_fetcher import (
     ScraperHTTPError,
     ScraperTimeoutError,
@@ -86,6 +87,10 @@ def _build_anibis_page_urls(base_url: str, max_pages: int) -> list[str]:
 
 def _build_homegate_page_urls(base_url: str, max_pages: int) -> list[str]:
     return [_set_query_param(base_url, key="ep", value=str(page)) for page in range(1, max_pages + 1)]
+
+
+def _build_immoscout_page_urls(base_url: str, max_pages: int) -> list[str]:
+    return [_set_query_param(base_url, key="pn", value=str(page)) for page in range(1, max_pages + 1)]
 
 
 def _cache_lookup_key(url: str) -> tuple[str, str, str]:
@@ -173,7 +178,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sources",
         default="anibis,lookmove",
-        help="Liste de sources séparées par des virgules (ex: anibis,lookmove,homegate).",
+        help="Liste de sources séparées par des virgules (ex: anibis,lookmove,homegate,immoscout).",
     )
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre maximum de pages (défaut: 1).")
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source.")
@@ -271,9 +276,13 @@ async def _fetch_pages_for_source(
                 await asyncio.sleep(delay_seconds)
         return cache_paths, fetched_pages, loaded_from_cache_pages, notes, "PASS", None, None
 
-    if source == "homegate":
+    if source in {"homegate", "immoscout"}:
         cache_paths = []
-        page_urls = _build_homegate_page_urls(base_url, max_pages)
+        page_urls = (
+            _build_homegate_page_urls(base_url, max_pages)
+            if source == "homegate"
+            else _build_immoscout_page_urls(base_url, max_pages)
+        )
         source_status = "PASS"
         stopped_at_page: int | None = None
         stopped_reason: str | None = None
@@ -302,7 +311,7 @@ async def _fetch_pages_for_source(
                         stopped_at_page = index
                         stopped_reason = f"HTTP_{exc.status_code}"
                         notes.append(
-                            f"Homegate pagination stopped at page {index}: HTTP {exc.status_code}, "
+                            f"{source.capitalize()} pagination stopped at page {index}: HTTP {exc.status_code}, "
                             "partial results kept."
                         )
                         break
@@ -313,7 +322,7 @@ async def _fetch_pages_for_source(
                         stopped_at_page = index
                         stopped_reason = "TIMEOUT"
                         notes.append(
-                            f"Homegate pagination stopped at page {index}: TIMEOUT, partial results kept."
+                            f"{source.capitalize()} pagination stopped at page {index}: TIMEOUT, partial results kept."
                         )
                         break
                     raise
@@ -464,11 +473,13 @@ async def _collect_source(
         "anibis": AnibisCachedHtmlScraper,
         "lookmove": LookmoveCachedHtmlScraper,
         "homegate": HomegateCachedHtmlScraper,
+        "immoscout": ImmoscoutCachedHtmlScraper,
     }
     parse_error_cls_by_source = {
         "anibis": AnibisParseError,
         "lookmove": LookmoveParseError,
         "homegate": HomegateParseError,
+        "immoscout": ImmoscoutParseError,
     }
     scraper_cls = scraper_cls_by_source[source]
     parse_error_cls = parse_error_cls_by_source[source]
@@ -495,7 +506,7 @@ async def _collect_source(
             "html_path": cache_path,
             "source": f"{source}_cached",
         }
-        if source == "homegate":
+        if source in {"homegate", "immoscout"}:
             scraper_kwargs["url_kind"] = url_kind
         scraper = scraper_cls(**scraper_kwargs)
         try:
@@ -703,7 +714,11 @@ async def _run_canton(
         if not source_config.enabled:
             note = source_config.note or "source disabled"
             disabled_reason = (
-                "HOMEGATE_DISABLED_ANTI_BOT_RISK" if source == "homegate" else "SOURCE_DISABLED"
+                "HOMEGATE_DISABLED_ANTI_BOT_RISK"
+                if source == "homegate"
+                else "IMMOSCOUT_DISABLED_VALIDATION_REQUIRED"
+                if source == "immoscout"
+                else "SOURCE_DISABLED"
             )
             if not source_urls:
                 summaries.append(
@@ -760,7 +775,8 @@ async def _run_canton(
                 if remaining_for_source is not None:
                     remaining_for_source = max(0, remaining_for_source - summary.collected_count)
             except ScraperHTTPError as exc:
-                if source == "lookmove":
+                if source in {"lookmove", "immoscout"}:
+                    source_label = "Lookmove" if source == "lookmove" else "ImmoScout"
                     summaries.append(
                         SourceSummary(
                             source=source,
@@ -783,7 +799,7 @@ async def _run_canton(
                             unchanged_count=0,
                             errors=[],
                             notes=[
-                                f"Lookmove blocked at page 1: HTTP {exc.status_code}, use cache or retry later."
+                                f"{source_label} blocked at page 1: HTTP {exc.status_code}, use cache or retry later."
                             ],
                             source_status="WARNING",
                             stopped_at_page=1,
@@ -819,7 +835,8 @@ async def _run_canton(
                 summaries.append(failed_summary)
                 errors.append(f"{canton}/{source}/{source_url.url_kind}: {exc}")
             except ScraperTimeoutError:
-                if source == "lookmove":
+                if source in {"lookmove", "immoscout"}:
+                    source_label = "Lookmove" if source == "lookmove" else "ImmoScout"
                     summaries.append(
                         SourceSummary(
                             source=source,
@@ -841,7 +858,7 @@ async def _run_canton(
                             updated_count=0,
                             unchanged_count=0,
                             errors=[],
-                            notes=["Lookmove blocked at page 1: TIMEOUT, use cache or retry later."],
+                            notes=[f"{source_label} blocked at page 1: TIMEOUT, use cache or retry later."],
                             source_status="WARNING",
                             stopped_at_page=1,
                             pagination_stopped_reason="TIMEOUT",

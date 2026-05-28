@@ -28,6 +28,11 @@ from immo_ne_collector.scrapers.homegate import (
     HomegateParseError,
     detect_homegate_challenge_html,
 )
+from immo_ne_collector.scrapers.immoscout import (
+    ImmoscoutCachedHtmlScraper,
+    ImmoscoutParseError,
+    detect_immoscout_challenge_html,
+)
 from immo_ne_collector.scrapers.http_fetcher import (
     ScraperHTTPError,
     ScraperTimeoutError,
@@ -62,6 +67,12 @@ HOMEGATE_HTTP_429_REASON = "HOMEGATE_HTTP_429"
 HOMEGATE_TIMEOUT_REASON = "HOMEGATE_TIMEOUT"
 HOMEGATE_NO_LISTINGS_REASON = "HOMEGATE_NO_LISTINGS_FOUND"
 HOMEGATE_INITIAL_STATE_MISSING_REASON = "HOMEGATE_INITIAL_STATE_MISSING"
+IMMOSCOUT_DISABLED_REASON = "IMMOSCOUT_DISABLED_VALIDATION_REQUIRED"
+IMMOSCOUT_CHALLENGE_REASON = "IMMOSCOUT_CHALLENGE_DETECTED"
+IMMOSCOUT_HTTP_403_REASON = "IMMOSCOUT_HTTP_403"
+IMMOSCOUT_HTTP_429_REASON = "IMMOSCOUT_HTTP_429"
+IMMOSCOUT_TIMEOUT_REASON = "IMMOSCOUT_TIMEOUT"
+IMMOSCOUT_NO_LISTINGS_REASON = "IMMOSCOUT_NO_LISTINGS_FOUND"
 
 
 class AuditPageRow(NamedTuple):
@@ -161,6 +172,14 @@ def _homegate_http_reason(status_code: int) -> str:
     if status_code == 429:
         return HOMEGATE_HTTP_429_REASON
     return f"HOMEGATE_HTTP_{status_code}"
+
+
+def _immoscout_http_reason(status_code: int) -> str:
+    if status_code == 403:
+        return IMMOSCOUT_HTTP_403_REASON
+    if status_code == 429:
+        return IMMOSCOUT_HTTP_429_REASON
+    return f"IMMOSCOUT_HTTP_{status_code}"
 
 
 def _cache_lookup_key(url: str) -> tuple[str, str, str]:
@@ -334,7 +353,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Audit GE, VD, NE, JU, FR, VS dans cet ordre.",
     )
-    parser.add_argument("--sources", default="anibis,lookmove", help="Sources CSV (ex: anibis,lookmove,homegate).")
+    parser.add_argument(
+        "--sources",
+        default="anibis,lookmove",
+        help="Sources CSV (ex: anibis,lookmove,homegate,immoscout).",
+    )
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre max de pages (défaut: 1).")
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source.")
     parser.add_argument("--skip-fetch", action="store_true", help="Réutiliser les caches existants si disponibles.")
@@ -462,6 +485,8 @@ async def _collect_source_audit_rows(
         page_urls = _build_anibis_page_urls(base_url, max_pages)
     elif source == "homegate":
         page_urls = _build_homegate_page_urls(base_url, max_pages)
+    elif source == "immoscout":
+        page_urls = [_set_query_param(base_url, key="pn", value=str(page)) for page in range(1, max_pages + 1)]
     else:
         page_urls = [base_url]
 
@@ -469,7 +494,7 @@ async def _collect_source_audit_rows(
     for page_number in range(1, max_pages + 1):
         if remaining is not None and remaining <= 0:
             break
-        url = page_urls[page_number - 1] if source in {"anibis", "homegate"} else current_url
+        url = page_urls[page_number - 1] if source in {"anibis", "homegate", "immoscout"} else current_url
         if page_number > 1 and delay_seconds > 0:
             await asyncio.sleep(delay_seconds)
         try:
@@ -488,10 +513,16 @@ async def _collect_source_audit_rows(
                 fetched_pages += 1
         except ScraperHTTPError as exc:
             failed_page = page_number
-            if source in {"lookmove", "homegate"}:
-                warning_label = "Lookmove" if source == "lookmove" else "Homegate"
+            if source in {"lookmove", "homegate", "immoscout"}:
+                warning_label = (
+                    "Lookmove" if source == "lookmove" else "Homegate" if source == "homegate" else "ImmoScout"
+                )
                 warning_hint = "Use cache or retry later."
                 if source == "homegate":
+                    warning_hint = (
+                        "Likely anti-bot/challenge in HTTP simple mode. Source remains prudently disabled by default."
+                    )
+                elif source == "immoscout":
                     warning_hint = (
                         "Likely anti-bot/challenge in HTTP simple mode. Source remains prudently disabled by default."
                     )
@@ -500,6 +531,8 @@ async def _collect_source_audit_rows(
                 stopped_reason = (
                     _homegate_http_reason(exc.status_code)
                     if source == "homegate"
+                    else _immoscout_http_reason(exc.status_code)
+                    if source == "immoscout"
                     else f"HTTP_{exc.status_code}"
                 )
                 source_warnings.append(
@@ -586,8 +619,10 @@ async def _collect_source_audit_rows(
             break
         except ScraperTimeoutError:
             failed_page = page_number
-            if source in {"lookmove", "homegate"}:
-                warning_label = "Lookmove" if source == "lookmove" else "Homegate"
+            if source in {"lookmove", "homegate", "immoscout"}:
+                warning_label = (
+                    "Lookmove" if source == "lookmove" else "Homegate" if source == "homegate" else "ImmoScout"
+                )
                 warning_hint = "Use cache or retry later."
                 if source == "homegate":
                     warning_hint = (
@@ -595,7 +630,13 @@ async def _collect_source_audit_rows(
                     )
                 source_status = "WARNING"
                 stopped_at_page = failed_page
-                stopped_reason = HOMEGATE_TIMEOUT_REASON if source == "homegate" else "TIMEOUT"
+                stopped_reason = (
+                    HOMEGATE_TIMEOUT_REASON
+                    if source == "homegate"
+                    else IMMOSCOUT_TIMEOUT_REASON
+                    if source == "immoscout"
+                    else "TIMEOUT"
+                )
                 source_warnings.append(
                     f"{warning_label} pagination stopped at page {failed_page}: TIMEOUT. {warning_hint}"
                 )
@@ -733,15 +774,59 @@ async def _collect_source_audit_rows(
                         )
                     )
                     break
+            if source == "immoscout":
+                challenge_detected, challenge_reason = detect_immoscout_challenge_html(html)
+                if challenge_detected:
+                    source_status = "WARNING"
+                    stopped_at_page = page_number
+                    stopped_reason = IMMOSCOUT_CHALLENGE_REASON
+                    warning_text = (
+                        f"immoscout: challenge detected on page={page_number} "
+                        f"({challenge_reason}); page not parsable in prudent mode."
+                    )
+                    warnings.append(warning_text)
+                    rows.append(
+                        AuditPageRow(
+                            source=source,
+                            url_kind=url_kind,
+                            canton=canton,
+                            page_requested=page_number,
+                            page_parsed="no",
+                            url_called=url,
+                            http_status=status,
+                            html_size_bytes=html_size,
+                            cache_path=str(cache_path),
+                            detected_total=0,
+                            detected_sale=0,
+                            detected_rent=0,
+                            detected_unknown=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            error_count=0,
+                            warning_count=len(warnings),
+                            warnings=" | ".join(warnings),
+                            errors="",
+                            source_status=source_status,
+                            stopped_at_page=stopped_at_page,
+                            pagination_stopped_reason=stopped_reason,
+                        )
+                    )
+                    break
             scraper_cls_by_source = {
                 "anibis": AnibisCachedHtmlScraper,
                 "lookmove": LookmoveCachedHtmlScraper,
                 "homegate": HomegateCachedHtmlScraper,
+                "immoscout": ImmoscoutCachedHtmlScraper,
             }
             parse_error_cls_by_source = {
                 "anibis": AnibisParseError,
                 "lookmove": LookmoveParseError,
                 "homegate": HomegateParseError,
+                "immoscout": ImmoscoutParseError,
             }
             scraper_cls = scraper_cls_by_source[source]
             parse_error_cls = parse_error_cls_by_source[source]
@@ -749,7 +834,7 @@ async def _collect_source_audit_rows(
                 "html_path": cache_path,
                 "source": f"{source}_cached",
             }
-            if source == "homegate":
+            if source in {"homegate", "immoscout"}:
                 scraper_kwargs["url_kind"] = url_kind
             scraper = scraper_cls(**scraper_kwargs)
             try:
@@ -798,6 +883,18 @@ async def _collect_source_audit_rows(
                     else:
                         stopped_reason = "HOMEGATE_PARSE_WARNING"
                     warnings.append(f"homegate: parse warning page={page_number}: {exc}")
+                elif source == "immoscout":
+                    source_status = "WARNING"
+                    stopped_at_page = page_number
+                    message = str(exc)
+                    lowered = message.lower()
+                    if "challenge page detected" in lowered:
+                        stopped_reason = IMMOSCOUT_CHALLENGE_REASON
+                    elif "no immoscout listing cards found" in lowered:
+                        stopped_reason = IMMOSCOUT_NO_LISTINGS_REASON
+                    else:
+                        stopped_reason = "IMMOSCOUT_PARSE_WARNING"
+                    warnings.append(f"immoscout: parse warning page={page_number}: {exc}")
                 else:
                     errors.append(f"{source}: parse error page={page_number}: {exc}")
 
@@ -1024,7 +1121,13 @@ async def _run(args: argparse.Namespace) -> int:
 
             if not source_config.enabled:
                 message = source_config.note or "source disabled"
-                disabled_reason = HOMEGATE_DISABLED_REASON if source == "homegate" else "SOURCE_DISABLED"
+                disabled_reason = (
+                    HOMEGATE_DISABLED_REASON
+                    if source == "homegate"
+                    else IMMOSCOUT_DISABLED_REASON
+                    if source == "immoscout"
+                    else "SOURCE_DISABLED"
+                )
                 source_statuses.append("WARNING")
                 top_warnings.append(f"{canton}/{source}: disabled ({message})")
                 if not source_urls:

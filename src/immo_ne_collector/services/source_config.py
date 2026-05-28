@@ -114,6 +114,43 @@ DEFAULT_HOMEGATE_VS_SALE_LAND_URL = (
     "https://www.homegate.ch/acheter/terrain/canton-valais/liste-annonces"
 )
 
+DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-geneve"
+)
+DEFAULT_IMMOSCOUT_GE_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-geneve"
+)
+DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-vaud"
+)
+DEFAULT_IMMOSCOUT_VD_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-vaud"
+)
+DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-neuchatel"
+)
+DEFAULT_IMMOSCOUT_NE_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-neuchatel"
+)
+DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-jura"
+)
+DEFAULT_IMMOSCOUT_JU_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-jura"
+)
+DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-fribourg"
+)
+DEFAULT_IMMOSCOUT_FR_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-fribourg"
+)
+DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL = (
+    "https://www.immoscout24.ch/fr/immobilier/acheter/canton-valais"
+)
+DEFAULT_IMMOSCOUT_VS_SALE_LAND_URL = (
+    "https://www.immoscout24.ch/fr/terrain/acheter/canton-valais"
+)
+
 
 @dataclass(frozen=True)
 class SourceUrlConfig:
@@ -341,6 +378,128 @@ SALE_SOURCE_CANTON_CONFIGS: dict[str, dict[str, SourceCantonConfig]] = {
             note=(
                 "URLs candidates Homegate vente VS (residential + land). Désactivée par défaut: validation prudente requise "
                 "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+    },
+    "immoscout": {
+        "GE": SourceCantonConfig(
+            source="immoscout",
+            canton="GE",
+            url=DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_GE_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente GE (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
+            ),
+        ),
+        "VD": SourceCantonConfig(
+            source="immoscout",
+            canton="VD",
+            url=DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_VD_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente VD (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
+            ),
+        ),
+        "NE": SourceCantonConfig(
+            source="immoscout",
+            canton="NE",
+            url=DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_NE_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente NE (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
+            ),
+        ),
+        "JU": SourceCantonConfig(
+            source="immoscout",
+            canton="JU",
+            url=DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_JU_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente JU (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
+            ),
+        ),
+        "FR": SourceCantonConfig(
+            source="immoscout",
+            canton="FR",
+            url=DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_FR_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente FR (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
+            ),
+        ),
+        "VS": SourceCantonConfig(
+            source="immoscout",
+            canton="VS",
+            url=DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_IMMOSCOUT_VS_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs manuelles validées ImmoScout vente VS (residential + land). Désactivée par défaut: "
+                "validation prudente requise tant que le risque anti-bot n'est pas validé en fetch HTTP simple."
             ),
         ),
     },

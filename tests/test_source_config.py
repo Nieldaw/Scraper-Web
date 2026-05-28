@@ -26,6 +26,18 @@ from immo_ne_collector.services.source_config import (
     DEFAULT_LOOKMOVE_NE_SALE_URL,
     DEFAULT_LOOKMOVE_VD_SALE_URL,
     DEFAULT_LOOKMOVE_VS_SALE_URL,
+    DEFAULT_IMMOSCOUT_FR_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL,
+    DEFAULT_IMMOSCOUT_GE_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL,
+    DEFAULT_IMMOSCOUT_JU_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL,
+    DEFAULT_IMMOSCOUT_NE_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL,
+    DEFAULT_IMMOSCOUT_VD_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL,
+    DEFAULT_IMMOSCOUT_VS_SALE_LAND_URL,
+    DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL,
     ROMANDY_CANTONS,
     SUPPORTED_CANTONS,
     get_sale_search_url,
@@ -57,6 +69,8 @@ def test_source_config_returns_enabled_urls() -> None:
     assert get_sale_search_url(source="lookmove", canton="VS") == DEFAULT_LOOKMOVE_VS_SALE_URL
     with pytest.raises(ValueError, match="configured but disabled"):
         get_sale_search_url(source="homegate", canton="GE")
+    with pytest.raises(ValueError, match="configured but disabled"):
+        get_sale_search_url(source="immoscout", canton="GE")
 
 
 def test_source_config_raises_for_unsupported_source() -> None:
@@ -72,8 +86,11 @@ def test_get_sale_source_config_anibis_fr_entry_contains_note() -> None:
 
 
 def test_list_sale_source_configs_returns_all_romandy_entries() -> None:
-    rows = list_sale_source_configs(sources=["anibis", "lookmove", "homegate"], cantons=list(ROMANDY_CANTONS))
-    assert len(rows) == 18
+    rows = list_sale_source_configs(
+        sources=["anibis", "lookmove", "homegate", "immoscout"],
+        cantons=list(ROMANDY_CANTONS),
+    )
+    assert len(rows) == 24
 
 
 def test_source_config_homegate_contains_romandy_urls_and_starts_disabled() -> None:
@@ -109,6 +126,41 @@ def test_source_config_homegate_contains_romandy_urls_and_starts_disabled() -> N
     vs_urls = get_sale_source_urls(source="homegate", canton="VS")
     assert vs_urls[0].url == DEFAULT_HOMEGATE_VS_SALE_RESIDENTIAL_URL
     assert vs_urls[1].url == DEFAULT_HOMEGATE_VS_SALE_LAND_URL
+
+
+def test_source_config_immoscout_contains_romandy_urls_and_starts_disabled() -> None:
+    assert get_sale_source_config(source="immoscout", canton="GE").url == DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="VD").url == DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="NE").url == DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="JU").url == DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="FR").url == DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="VS").url == DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL
+    assert get_sale_source_config(source="immoscout", canton="NE").enabled is False
+
+    ge_urls = get_sale_source_urls(source="immoscout", canton="GE")
+    assert [item.url_kind for item in ge_urls] == ["residential", "land"]
+    assert ge_urls[0].url == DEFAULT_IMMOSCOUT_GE_SALE_RESIDENTIAL_URL
+    assert ge_urls[1].url == DEFAULT_IMMOSCOUT_GE_SALE_LAND_URL
+
+    vd_urls = get_sale_source_urls(source="immoscout", canton="VD")
+    assert vd_urls[0].url == DEFAULT_IMMOSCOUT_VD_SALE_RESIDENTIAL_URL
+    assert vd_urls[1].url == DEFAULT_IMMOSCOUT_VD_SALE_LAND_URL
+
+    ne_urls = get_sale_source_urls(source="immoscout", canton="NE")
+    assert ne_urls[0].url == DEFAULT_IMMOSCOUT_NE_SALE_RESIDENTIAL_URL
+    assert ne_urls[1].url == DEFAULT_IMMOSCOUT_NE_SALE_LAND_URL
+
+    ju_urls = get_sale_source_urls(source="immoscout", canton="JU")
+    assert ju_urls[0].url == DEFAULT_IMMOSCOUT_JU_SALE_RESIDENTIAL_URL
+    assert ju_urls[1].url == DEFAULT_IMMOSCOUT_JU_SALE_LAND_URL
+
+    fr_urls = get_sale_source_urls(source="immoscout", canton="FR")
+    assert fr_urls[0].url == DEFAULT_IMMOSCOUT_FR_SALE_RESIDENTIAL_URL
+    assert fr_urls[1].url == DEFAULT_IMMOSCOUT_FR_SALE_LAND_URL
+
+    vs_urls = get_sale_source_urls(source="immoscout", canton="VS")
+    assert vs_urls[0].url == DEFAULT_IMMOSCOUT_VS_SALE_RESIDENTIAL_URL
+    assert vs_urls[1].url == DEFAULT_IMMOSCOUT_VS_SALE_LAND_URL
 
 
 def test_infer_detected_canton_from_url_city_and_postal_code() -> None:

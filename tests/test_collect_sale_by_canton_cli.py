@@ -54,7 +54,7 @@ def test_parser_accepts_new_options() -> None:
         [
             "--all-romandie",
             "--sources",
-            "anibis,lookmove,homegate",
+            "anibis,lookmove,homegate,immoscout",
             "--max-pages",
             "2",
             "--delay-seconds",
@@ -66,7 +66,7 @@ def test_parser_accepts_new_options() -> None:
     )
     assert args.all_romandie is True
     assert args.canton is None
-    assert args.sources == "anibis,lookmove,homegate"
+    assert args.sources == "anibis,lookmove,homegate,immoscout"
     assert args.max_pages == 2
     assert args.delay_seconds == 1.5
     assert args.use_cache is True
@@ -156,6 +156,23 @@ def test_run_accepts_homegate_source(monkeypatch) -> None:
     assert calls == ["homegate"]
 
 
+def test_run_accepts_immoscout_source(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--sources", "immoscout", "--max-pages", "1", "--no-export"])
+
+    calls: list[str] = []
+
+    async def fake_run_canton(*, canton, sources, args):
+        calls.extend(sources)
+        return [_summary(item) for item in sources], []
+
+    monkeypatch.setattr(MODULE, "_run_canton", fake_run_canton)
+
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+    assert calls == ["immoscout"]
+
+
 def test_list_config_mode_returns_zero() -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(["--list-config"])
@@ -167,6 +184,14 @@ def test_list_config_shows_homegate_residential_and_land(capsys) -> None:
     MODULE._print_list_config(sources=["homegate"])
     out = capsys.readouterr().out
     assert "homegate" in out
+    assert "residential" in out
+    assert "land" in out
+
+
+def test_list_config_shows_immoscout_residential_and_land(capsys) -> None:
+    MODULE._print_list_config(sources=["immoscout"])
+    out = capsys.readouterr().out
+    assert "immoscout" in out
     assert "residential" in out
     assert "land" in out
 
