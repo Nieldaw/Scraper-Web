@@ -23,6 +23,8 @@ class _FakeSessionCtx:
 def _summary(source: str) -> MODULE.SourceSummary:
     return MODULE.SourceSummary(
         source=source,
+        url_kind="default",
+        base_url="https://example.test/search",
         requested_pages=1,
         fetched_pages=1,
         loaded_from_cache_pages=0,
@@ -52,7 +54,7 @@ def test_parser_accepts_new_options() -> None:
         [
             "--all-romandie",
             "--sources",
-            "anibis,lookmove",
+            "anibis,lookmove,homegate",
             "--max-pages",
             "2",
             "--delay-seconds",
@@ -64,7 +66,7 @@ def test_parser_accepts_new_options() -> None:
     )
     assert args.all_romandie is True
     assert args.canton is None
-    assert args.sources == "anibis,lookmove"
+    assert args.sources == "anibis,lookmove,homegate"
     assert args.max_pages == 2
     assert args.delay_seconds == 1.5
     assert args.use_cache is True
@@ -137,11 +139,36 @@ def test_run_accepts_anibis_and_lookmove(monkeypatch) -> None:
     assert calls == ["anibis", "lookmove"]
 
 
+def test_run_accepts_homegate_source(monkeypatch) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--sources", "homegate", "--max-pages", "1", "--no-export"])
+
+    calls: list[str] = []
+
+    async def fake_run_canton(*, canton, sources, args):
+        calls.extend(sources)
+        return [_summary(item) for item in sources], []
+
+    monkeypatch.setattr(MODULE, "_run_canton", fake_run_canton)
+
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
+    assert calls == ["homegate"]
+
+
 def test_list_config_mode_returns_zero() -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(["--list-config"])
     rc = asyncio.run(MODULE._run(args))
     assert rc == 0
+
+
+def test_list_config_shows_homegate_residential_and_land(capsys) -> None:
+    MODULE._print_list_config(sources=["homegate"])
+    out = capsys.readouterr().out
+    assert "homegate" in out
+    assert "residential" in out
+    assert "land" in out
 
 
 def test_run_all_romandie_loops_all_cantons(monkeypatch) -> None:
@@ -169,6 +196,8 @@ def test_run_handles_disabled_source_as_warning(monkeypatch) -> None:
         return [
             MODULE.SourceSummary(
                 source="anibis",
+                url_kind="default",
+                base_url="https://example.test/disabled",
                 requested_pages=1,
                 fetched_pages=0,
                 loaded_from_cache_pages=0,
@@ -317,3 +346,35 @@ def test_fetch_pages_for_source_lookmove_403_stops_with_warning(monkeypatch, tmp
     assert stopped_at_page == 2
     assert stopped_reason == "HTTP_403"
     assert any("use cache or retry later" in note for note in notes)
+
+
+def test_fetch_pages_for_source_homegate_uses_cache_when_enabled(monkeypatch, tmp_path: Path) -> None:
+    page1 = tmp_path / "homegate_p1.html"
+    page1.write_text("<html></html>", encoding="utf-8")
+
+    async def fake_fetch_html_to_cache(**kwargs):
+        raise AssertionError("Should not fetch when cache is fresh")
+
+    monkeypatch.setattr(MODULE, "_find_fresh_cache_for_url", lambda *a, **k: page1)
+    monkeypatch.setattr(MODULE, "fetch_html_to_cache", fake_fetch_html_to_cache)
+
+    cache_paths, fetched_pages, loaded_from_cache, notes, source_status, stopped_at_page, stopped_reason = asyncio.run(
+        MODULE._fetch_pages_for_source(
+            source="homegate",
+            base_url="https://www.homegate.ch/acheter/maison/canton-neuchatel/liste-annonces",
+            max_pages=1,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+            use_cache=True,
+            cache_max_age_hours=24,
+        )
+    )
+
+    assert cache_paths == [page1]
+    assert fetched_pages == 0
+    assert loaded_from_cache == 1
+    assert notes == []
+    assert source_status == "PASS"
+    assert stopped_at_page is None
+    assert stopped_reason is None

@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
+from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
 from immo_ne_collector.scrapers.http_fetcher import (
     ScraperHTTPError,
     ScraperTimeoutError,
@@ -34,8 +35,10 @@ from immo_ne_collector.services.quality import QualityExportResult, export_quali
 from immo_ne_collector.services.source_config import (
     ROMANDY_CANTONS,
     SourceCantonConfig,
+    SourceUrlConfig,
     build_canton_property_filter,
     get_sale_source_config,
+    get_sale_source_urls,
     list_sale_source_configs,
     normalize_canton,
     parse_sources_csv,
@@ -46,6 +49,8 @@ MAX_ALLOWED_PAGES = 10
 
 class SourceSummary(NamedTuple):
     source: str
+    url_kind: str
+    base_url: str | None
     requested_pages: int
     fetched_pages: int
     loaded_from_cache_pages: int
@@ -77,6 +82,10 @@ def _set_query_param(url: str, *, key: str, value: str) -> str:
 
 def _build_anibis_page_urls(base_url: str, max_pages: int) -> list[str]:
     return [_set_query_param(base_url, key="page", value=str(page)) for page in range(1, max_pages + 1)]
+
+
+def _build_homegate_page_urls(base_url: str, max_pages: int) -> list[str]:
+    return [_set_query_param(base_url, key="ep", value=str(page)) for page in range(1, max_pages + 1)]
 
 
 def _cache_lookup_key(url: str) -> tuple[str, str, str]:
@@ -164,20 +173,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--sources",
         default="anibis,lookmove",
-        help="Liste de sources séparées par des virgules (ex: anibis,lookmove).",
+        help="Liste de sources séparées par des virgules (ex: anibis,lookmove,homegate).",
     )
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre maximum de pages (défaut: 1).")
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source.")
     parser.add_argument(
         "--use-cache",
         action="store_true",
-        help="Réutiliser le cache Lookmove récent quand disponible avant de refaire un fetch.",
+        help="Réutiliser le cache récent quand disponible avant de refaire un fetch (Lookmove/Homegate).",
     )
     parser.add_argument(
         "--cache-max-age-hours",
         type=int,
         default=24,
-        help="Âge max du cache Lookmove en heures si --use-cache (défaut: 24).",
+        help="Âge max du cache en heures si --use-cache (défaut: 24).",
     )
     parser.add_argument(
         "--delay-seconds",
@@ -261,6 +270,72 @@ async def _fetch_pages_for_source(
             if index < len(page_urls) and delay_seconds > 0:
                 await asyncio.sleep(delay_seconds)
         return cache_paths, fetched_pages, loaded_from_cache_pages, notes, "PASS", None, None
+
+    if source == "homegate":
+        cache_paths = []
+        page_urls = _build_homegate_page_urls(base_url, max_pages)
+        source_status = "PASS"
+        stopped_at_page: int | None = None
+        stopped_reason: str | None = None
+
+        for index, page_url in enumerate(page_urls, start=1):
+            if use_cache:
+                cached = _find_fresh_cache_for_url(cache_dir, page_url, max_age_hours=cache_max_age_hours)
+            else:
+                cached = None
+
+            if cached is not None:
+                cache_paths.append(cached)
+                loaded_from_cache_pages += 1
+                print(f"[{source}] Page {index}: loaded from cache path={cached}")
+            else:
+                try:
+                    result = await fetch_html_to_cache(
+                        url=page_url,
+                        cache_dir=cache_dir,
+                        source=f"{source}_sale",
+                        safety=safety,
+                    )
+                except ScraperHTTPError as exc:
+                    if cache_paths:
+                        source_status = "WARNING"
+                        stopped_at_page = index
+                        stopped_reason = f"HTTP_{exc.status_code}"
+                        notes.append(
+                            f"Homegate pagination stopped at page {index}: HTTP {exc.status_code}, "
+                            "partial results kept."
+                        )
+                        break
+                    raise
+                except ScraperTimeoutError:
+                    if cache_paths:
+                        source_status = "WARNING"
+                        stopped_at_page = index
+                        stopped_reason = "TIMEOUT"
+                        notes.append(
+                            f"Homegate pagination stopped at page {index}: TIMEOUT, partial results kept."
+                        )
+                        break
+                    raise
+                print(
+                    f"[{source}] Page {index}: "
+                    f"HTTP status={result.status_code} size={result.size_bytes} path={result.file_path}"
+                )
+                cache_paths.append(result.file_path)
+                fetched_pages += 1
+
+            if index < len(page_urls) and delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
+
+        return (
+            cache_paths,
+            fetched_pages,
+            loaded_from_cache_pages,
+            notes,
+            source_status,
+            stopped_at_page,
+            stopped_reason,
+        )
 
     source_status = "PASS"
     stopped_at_page: int | None = None
@@ -363,6 +438,7 @@ async def _fetch_pages_for_source(
 async def _collect_source(
     *,
     source: str,
+    url_kind: str,
     canton: str,
     base_url: str,
     max_pages: int,
@@ -384,8 +460,18 @@ async def _collect_source(
         cache_max_age_hours=cache_max_age_hours,
     )
 
-    scraper_cls = AnibisCachedHtmlScraper if source == "anibis" else LookmoveCachedHtmlScraper
-    parse_error_cls = AnibisParseError if source == "anibis" else LookmoveParseError
+    scraper_cls_by_source = {
+        "anibis": AnibisCachedHtmlScraper,
+        "lookmove": LookmoveCachedHtmlScraper,
+        "homegate": HomegateCachedHtmlScraper,
+    }
+    parse_error_cls_by_source = {
+        "anibis": AnibisParseError,
+        "lookmove": LookmoveParseError,
+        "homegate": HomegateParseError,
+    }
+    scraper_cls = scraper_cls_by_source[source]
+    parse_error_cls = parse_error_cls_by_source[source]
 
     remaining = max_listings
     parsed_pages = 0
@@ -405,7 +491,13 @@ async def _collect_source(
         if remaining is not None and remaining <= 0:
             break
 
-        scraper = scraper_cls(html_path=cache_path, source=f"{source}_cached")
+        scraper_kwargs: dict[str, object] = {
+            "html_path": cache_path,
+            "source": f"{source}_cached",
+        }
+        if source == "homegate":
+            scraper_kwargs["url_kind"] = url_kind
+        scraper = scraper_cls(**scraper_kwargs)
         try:
             batch = await collect_and_normalize(scraper)
         except parse_error_cls as exc:
@@ -438,6 +530,8 @@ async def _collect_source(
 
     return SourceSummary(
         source=source,
+        url_kind=url_kind,
+        base_url=base_url,
         requested_pages=max_pages,
         fetched_pages=fetched_pages,
         loaded_from_cache_pages=loaded_from_cache_pages,
@@ -464,11 +558,15 @@ async def _collect_source(
 def _build_disabled_source_summary(
     *,
     source: str,
+    url_kind: str = "default",
+    base_url: str | None = None,
     max_pages: int,
     note: str,
 ) -> SourceSummary:
     return SourceSummary(
         source=source,
+        url_kind=url_kind,
+        base_url=base_url,
         requested_pages=max_pages,
         fetched_pages=0,
         loaded_from_cache_pages=0,
@@ -520,7 +618,10 @@ async def _generate_exports_by_canton(
 
 
 def _print_source_summary(*, canton: str, summary: SourceSummary) -> None:
-    print(f"- [{canton}/{summary.source}]")
+    label = f"{summary.source}/{summary.url_kind}" if summary.url_kind else summary.source
+    print(f"- [{canton}/{label}]")
+    if summary.base_url:
+        print(f"  url: {summary.base_url}")
     print(f"  requested pages: {summary.requested_pages}")
     print(f"  fetched pages: {summary.fetched_pages}")
     print(f"  loaded from cache: {summary.loaded_from_cache_pages}")
@@ -555,12 +656,19 @@ def _print_source_summary(*, canton: str, summary: SourceSummary) -> None:
 def _print_list_config(*, sources: list[str]) -> None:
     rows = list_sale_source_configs(cantons=list(ROMANDY_CANTONS), sources=sources)
     print("Configured source/canton sale URLs:")
-    print("canton | source | enabled | url | note")
+    print("canton | source | enabled | url_kind | url | note")
     for row in rows:
-        url = row.url or "-"
         note = row.note or ""
         enabled = "true" if row.enabled else "false"
-        print(f"{row.canton} | {row.source} | {enabled} | {url} | {note}")
+        source_urls = get_sale_source_urls(source=row.source, canton=row.canton)
+        if not source_urls:
+            url = row.url or "-"
+            print(f"{row.canton} | {row.source} | {enabled} | default | {url} | {note}")
+            continue
+        for source_url in source_urls:
+            print(
+                f"{row.canton} | {row.source} | {enabled} | {source_url.url_kind} | {source_url.url} | {note}"
+            )
 
 
 async def _run_canton(
@@ -587,165 +695,208 @@ async def _run_canton(
             )
             continue
 
-        if not source_config.enabled or not source_config.url:
+        source_urls = get_sale_source_urls(source=source, canton=canton)
+        if not source_urls and source_config.url:
+            source_urls = [SourceUrlConfig(url=source_config.url, url_kind="default")]
+
+        if not source_config.enabled:
             note = source_config.note or "source disabled"
+            if not source_urls:
+                summaries.append(
+                    _build_disabled_source_summary(
+                        source=source,
+                        max_pages=args.max_pages,
+                        note=f"{source} disabled for {canton}: {note}",
+                    )
+                )
+                continue
+            for source_url in source_urls:
+                summaries.append(
+                    _build_disabled_source_summary(
+                        source=source,
+                        url_kind=source_url.url_kind,
+                        base_url=source_url.url,
+                        max_pages=args.max_pages,
+                        note=f"{source} disabled for {canton}: {note}",
+                    )
+                )
+            continue
+
+        if not source_urls:
             summaries.append(
                 _build_disabled_source_summary(
                     source=source,
                     max_pages=args.max_pages,
-                    note=f"{source} disabled for {canton}: {note}",
+                    note=f"{source} has no URL configured for {canton}",
                 )
             )
             continue
 
-        try:
-            summary = await _collect_source(
-                source=source,
-                canton=canton,
-                base_url=source_config.url,
-                max_pages=args.max_pages,
-                max_listings=args.max_listings,
-                timeout=args.timeout,
-                retries=args.retries,
-                delay_seconds=args.delay_seconds,
-                use_cache=args.use_cache,
-                cache_max_age_hours=args.cache_max_age_hours,
-            )
-            summaries.append(summary)
-        except ScraperHTTPError as exc:
-            if source == "lookmove":
-                summaries.append(
-                    SourceSummary(
-                        source=source,
-                        requested_pages=args.max_pages,
-                        fetched_pages=0,
-                        loaded_from_cache_pages=0,
-                        parsed_pages=0,
-                        cache_files=[],
-                        detected_total=0,
-                        kept_canton_count=0,
-                        excluded_canton_count=0,
-                        tx_sale=0,
-                        tx_rent=0,
-                        tx_unknown=0,
-                        collected_count=0,
-                        created_count=0,
-                        updated_count=0,
-                        unchanged_count=0,
-                        errors=[],
-                        notes=[
-                            f"Lookmove blocked at page 1: HTTP {exc.status_code}, use cache or retry later."
-                        ],
-                        source_status="WARNING",
-                        stopped_at_page=1,
-                        pagination_stopped_reason=f"HTTP_{exc.status_code}",
-                    )
+        remaining_for_source = args.max_listings
+        for source_url in source_urls:
+            if remaining_for_source is not None and remaining_for_source <= 0:
+                break
+            try:
+                summary = await _collect_source(
+                    source=source,
+                    url_kind=source_url.url_kind,
+                    canton=canton,
+                    base_url=source_url.url,
+                    max_pages=args.max_pages,
+                    max_listings=remaining_for_source,
+                    timeout=args.timeout,
+                    retries=args.retries,
+                    delay_seconds=args.delay_seconds,
+                    use_cache=args.use_cache,
+                    cache_max_age_hours=args.cache_max_age_hours,
                 )
-                continue
-            failed_summary = SourceSummary(
-                source=source,
-                requested_pages=args.max_pages,
-                fetched_pages=0,
-                loaded_from_cache_pages=0,
-                parsed_pages=0,
-                cache_files=[],
-                detected_total=0,
-                kept_canton_count=0,
-                excluded_canton_count=0,
-                tx_sale=0,
-                tx_rent=0,
-                tx_unknown=0,
-                collected_count=0,
-                created_count=0,
-                updated_count=0,
-                unchanged_count=0,
-                errors=[str(exc)],
-                notes=[f"Collection error on {source}/{canton}: {exc}"],
-                source_status="FAIL",
-                stopped_at_page=1,
-                pagination_stopped_reason=f"HTTP_{exc.status_code}",
-            )
-            summaries.append(failed_summary)
-            errors.append(f"{canton}/{source}: {exc}")
-        except ScraperTimeoutError:
-            if source == "lookmove":
-                summaries.append(
-                    SourceSummary(
-                        source=source,
-                        requested_pages=args.max_pages,
-                        fetched_pages=0,
-                        loaded_from_cache_pages=0,
-                        parsed_pages=0,
-                        cache_files=[],
-                        detected_total=0,
-                        kept_canton_count=0,
-                        excluded_canton_count=0,
-                        tx_sale=0,
-                        tx_rent=0,
-                        tx_unknown=0,
-                        collected_count=0,
-                        created_count=0,
-                        updated_count=0,
-                        unchanged_count=0,
-                        errors=[],
-                        notes=["Lookmove blocked at page 1: TIMEOUT, use cache or retry later."],
-                        source_status="WARNING",
-                        stopped_at_page=1,
-                        pagination_stopped_reason="TIMEOUT",
+                summaries.append(summary)
+                if remaining_for_source is not None:
+                    remaining_for_source = max(0, remaining_for_source - summary.collected_count)
+            except ScraperHTTPError as exc:
+                if source == "lookmove":
+                    summaries.append(
+                        SourceSummary(
+                            source=source,
+                            url_kind=source_url.url_kind,
+                            base_url=source_url.url,
+                            requested_pages=args.max_pages,
+                            fetched_pages=0,
+                            loaded_from_cache_pages=0,
+                            parsed_pages=0,
+                            cache_files=[],
+                            detected_total=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            tx_sale=0,
+                            tx_rent=0,
+                            tx_unknown=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            errors=[],
+                            notes=[
+                                f"Lookmove blocked at page 1: HTTP {exc.status_code}, use cache or retry later."
+                            ],
+                            source_status="WARNING",
+                            stopped_at_page=1,
+                            pagination_stopped_reason=f"HTTP_{exc.status_code}",
+                        )
                     )
+                    continue
+                failed_summary = SourceSummary(
+                    source=source,
+                    url_kind=source_url.url_kind,
+                    base_url=source_url.url,
+                    requested_pages=args.max_pages,
+                    fetched_pages=0,
+                    loaded_from_cache_pages=0,
+                    parsed_pages=0,
+                    cache_files=[],
+                    detected_total=0,
+                    kept_canton_count=0,
+                    excluded_canton_count=0,
+                    tx_sale=0,
+                    tx_rent=0,
+                    tx_unknown=0,
+                    collected_count=0,
+                    created_count=0,
+                    updated_count=0,
+                    unchanged_count=0,
+                    errors=[str(exc)],
+                    notes=[f"Collection error on {source}/{canton}/{source_url.url_kind}: {exc}"],
+                    source_status="FAIL",
+                    stopped_at_page=1,
+                    pagination_stopped_reason=f"HTTP_{exc.status_code}",
                 )
-                continue
-            failed_summary = SourceSummary(
-                source=source,
-                requested_pages=args.max_pages,
-                fetched_pages=0,
-                loaded_from_cache_pages=0,
-                parsed_pages=0,
-                cache_files=[],
-                detected_total=0,
-                kept_canton_count=0,
-                excluded_canton_count=0,
-                tx_sale=0,
-                tx_rent=0,
-                tx_unknown=0,
-                collected_count=0,
-                created_count=0,
-                updated_count=0,
-                unchanged_count=0,
-                errors=["TIMEOUT"],
-                notes=[f"Collection error on {source}/{canton}: TIMEOUT"],
-                source_status="FAIL",
-                stopped_at_page=1,
-                pagination_stopped_reason="TIMEOUT",
-            )
-            summaries.append(failed_summary)
-            errors.append(f"{canton}/{source}: TIMEOUT")
-        except Exception as exc:
-            failed_summary = SourceSummary(
-                source=source,
-                requested_pages=args.max_pages,
-                fetched_pages=0,
-                loaded_from_cache_pages=0,
-                parsed_pages=0,
-                cache_files=[],
-                detected_total=0,
-                kept_canton_count=0,
-                excluded_canton_count=0,
-                tx_sale=0,
-                tx_rent=0,
-                tx_unknown=0,
-                collected_count=0,
-                created_count=0,
-                updated_count=0,
-                unchanged_count=0,
-                errors=[str(exc)],
-                notes=[f"Collection error on {source}/{canton}: {exc}"],
-                source_status="FAIL",
-                stopped_at_page=None,
-                pagination_stopped_reason="COLLECTION_EXCEPTION",
-            )
-            summaries.append(failed_summary)
-            errors.append(f"{canton}/{source}: {exc}")
+                summaries.append(failed_summary)
+                errors.append(f"{canton}/{source}/{source_url.url_kind}: {exc}")
+            except ScraperTimeoutError:
+                if source == "lookmove":
+                    summaries.append(
+                        SourceSummary(
+                            source=source,
+                            url_kind=source_url.url_kind,
+                            base_url=source_url.url,
+                            requested_pages=args.max_pages,
+                            fetched_pages=0,
+                            loaded_from_cache_pages=0,
+                            parsed_pages=0,
+                            cache_files=[],
+                            detected_total=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            tx_sale=0,
+                            tx_rent=0,
+                            tx_unknown=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            errors=[],
+                            notes=["Lookmove blocked at page 1: TIMEOUT, use cache or retry later."],
+                            source_status="WARNING",
+                            stopped_at_page=1,
+                            pagination_stopped_reason="TIMEOUT",
+                        )
+                    )
+                    continue
+                failed_summary = SourceSummary(
+                    source=source,
+                    url_kind=source_url.url_kind,
+                    base_url=source_url.url,
+                    requested_pages=args.max_pages,
+                    fetched_pages=0,
+                    loaded_from_cache_pages=0,
+                    parsed_pages=0,
+                    cache_files=[],
+                    detected_total=0,
+                    kept_canton_count=0,
+                    excluded_canton_count=0,
+                    tx_sale=0,
+                    tx_rent=0,
+                    tx_unknown=0,
+                    collected_count=0,
+                    created_count=0,
+                    updated_count=0,
+                    unchanged_count=0,
+                    errors=["TIMEOUT"],
+                    notes=[f"Collection error on {source}/{canton}/{source_url.url_kind}: TIMEOUT"],
+                    source_status="FAIL",
+                    stopped_at_page=1,
+                    pagination_stopped_reason="TIMEOUT",
+                )
+                summaries.append(failed_summary)
+                errors.append(f"{canton}/{source}/{source_url.url_kind}: TIMEOUT")
+            except Exception as exc:
+                failed_summary = SourceSummary(
+                    source=source,
+                    url_kind=source_url.url_kind,
+                    base_url=source_url.url,
+                    requested_pages=args.max_pages,
+                    fetched_pages=0,
+                    loaded_from_cache_pages=0,
+                    parsed_pages=0,
+                    cache_files=[],
+                    detected_total=0,
+                    kept_canton_count=0,
+                    excluded_canton_count=0,
+                    tx_sale=0,
+                    tx_rent=0,
+                    tx_unknown=0,
+                    collected_count=0,
+                    created_count=0,
+                    updated_count=0,
+                    unchanged_count=0,
+                    errors=[str(exc)],
+                    notes=[f"Collection error on {source}/{canton}/{source_url.url_kind}: {exc}"],
+                    source_status="FAIL",
+                    stopped_at_page=None,
+                    pagination_stopped_reason="COLLECTION_EXCEPTION",
+                )
+                summaries.append(failed_summary)
+                errors.append(f"{canton}/{source}/{source_url.url_kind}: {exc}")
 
     return summaries, errors
 

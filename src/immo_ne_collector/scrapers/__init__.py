@@ -1,5 +1,6 @@
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
 from immo_ne_collector.scrapers.base import BaseScraper, RawListing
+from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
 from immo_ne_collector.scrapers.http_fetcher import CachedFetchResult, build_cache_filename, fetch_html_to_cache
 from immo_ne_collector.scrapers.lookmove import LookmoveCachedHtmlScraper, LookmoveParseError
 from immo_ne_collector.scrapers.mock import MockScraper
@@ -20,6 +21,8 @@ __all__ = [
     "AnibisCachedHtmlScraper",
     "AnibisParseError",
     "CachedFetchResult",
+    "HomegateCachedHtmlScraper",
+    "HomegateParseError",
     "LookmoveCachedHtmlScraper",
     "LookmoveParseError",
     "MockScraper",

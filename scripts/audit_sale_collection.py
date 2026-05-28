@@ -23,6 +23,7 @@ if str(SRC) not in sys.path:
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
+from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
 from immo_ne_collector.scrapers.http_fetcher import (
     ScraperHTTPError,
     ScraperTimeoutError,
@@ -39,8 +40,10 @@ from immo_ne_collector.services.source_config import (
     CANTON_MATCHERS,
     ROMANDY_CANTONS,
     SourceCantonConfig,
+    SourceUrlConfig,
     build_canton_property_filter,
     get_sale_source_config,
+    get_sale_source_urls,
     normalize_detected_canton,
     normalize_canton,
     parse_sources_csv,
@@ -52,6 +55,7 @@ SUSPECT_NPA_PRICE_VALUES = {Decimal("2000"), Decimal("2300"), Decimal("2400")}
 
 class AuditPageRow(NamedTuple):
     source: str
+    url_kind: str
     canton: str
     page_requested: int
     page_parsed: str
@@ -87,6 +91,10 @@ def _set_query_param(url: str, *, key: str, value: str) -> str:
 
 def _build_anibis_page_urls(base_url: str, max_pages: int) -> list[str]:
     return [_set_query_param(base_url, key="page", value=str(page)) for page in range(1, max_pages + 1)]
+
+
+def _build_homegate_page_urls(base_url: str, max_pages: int) -> list[str]:
+    return [_set_query_param(base_url, key="ep", value=str(page)) for page in range(1, max_pages + 1)]
 
 
 def _extract_lookmove_next_page_url(html_text: str, current_url: str) -> str | None:
@@ -307,7 +315,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Audit GE, VD, NE, JU, FR, VS dans cet ordre.",
     )
-    parser.add_argument("--sources", default="anibis,lookmove", help="Sources CSV (ex: anibis,lookmove).")
+    parser.add_argument("--sources", default="anibis,lookmove", help="Sources CSV (ex: anibis,lookmove,homegate).")
     parser.add_argument("--max-pages", type=int, default=1, help="Nombre max de pages (défaut: 1).")
     parser.add_argument("--max-listings", type=int, default=None, help="Nombre max d'annonces par source.")
     parser.add_argument("--skip-fetch", action="store_true", help="Réutiliser les caches existants si disponibles.")
@@ -406,6 +414,7 @@ async def _fetch_or_reuse_page(
 async def _collect_source_audit_rows(
     *,
     source: str,
+    url_kind: str,
     canton: str,
     base_url: str,
     max_pages: int,
@@ -432,6 +441,8 @@ async def _collect_source_audit_rows(
 
     if source == "anibis":
         page_urls = _build_anibis_page_urls(base_url, max_pages)
+    elif source == "homegate":
+        page_urls = _build_homegate_page_urls(base_url, max_pages)
     else:
         page_urls = [base_url]
 
@@ -439,7 +450,7 @@ async def _collect_source_audit_rows(
     for page_number in range(1, max_pages + 1):
         if remaining is not None and remaining <= 0:
             break
-        url = page_urls[page_number - 1] if source == "anibis" else current_url
+        url = page_urls[page_number - 1] if source in {"anibis", "homegate"} else current_url
         if page_number > 1 and delay_seconds > 0:
             await asyncio.sleep(delay_seconds)
         try:
@@ -469,6 +480,7 @@ async def _collect_source_audit_rows(
                 rows.append(
                     AuditPageRow(
                         source=source,
+                        url_kind=url_kind,
                         canton=canton,
                         page_requested=failed_page,
                         page_parsed="no",
@@ -506,6 +518,7 @@ async def _collect_source_audit_rows(
             rows.append(
                 AuditPageRow(
                     source=source,
+                    url_kind=url_kind,
                     canton=canton,
                     page_requested=failed_page,
                     page_parsed="no",
@@ -554,6 +567,7 @@ async def _collect_source_audit_rows(
                 rows.append(
                     AuditPageRow(
                         source=source,
+                        url_kind=url_kind,
                         canton=canton,
                         page_requested=failed_page,
                         page_parsed="no",
@@ -591,6 +605,7 @@ async def _collect_source_audit_rows(
             rows.append(
                 AuditPageRow(
                     source=source,
+                    url_kind=url_kind,
                     canton=canton,
                     page_requested=failed_page,
                     page_parsed="no",
@@ -641,9 +656,25 @@ async def _collect_source_audit_rows(
         if cache_path is None:
             errors.append(f"{source}: page {page_number} cache unavailable.")
         else:
-            scraper_cls = AnibisCachedHtmlScraper if source == "anibis" else LookmoveCachedHtmlScraper
-            parse_error_cls = AnibisParseError if source == "anibis" else LookmoveParseError
-            scraper = scraper_cls(html_path=cache_path, source=f"{source}_cached")
+            scraper_cls_by_source = {
+                "anibis": AnibisCachedHtmlScraper,
+                "lookmove": LookmoveCachedHtmlScraper,
+                "homegate": HomegateCachedHtmlScraper,
+            }
+            parse_error_cls_by_source = {
+                "anibis": AnibisParseError,
+                "lookmove": LookmoveParseError,
+                "homegate": HomegateParseError,
+            }
+            scraper_cls = scraper_cls_by_source[source]
+            parse_error_cls = parse_error_cls_by_source[source]
+            scraper_kwargs: dict[str, object] = {
+                "html_path": cache_path,
+                "source": f"{source}_cached",
+            }
+            if source == "homegate":
+                scraper_kwargs["url_kind"] = url_kind
+            scraper = scraper_cls(**scraper_kwargs)
             try:
                 detected_batch = await collect_and_normalize(scraper)
                 parsed = True
@@ -682,6 +713,7 @@ async def _collect_source_audit_rows(
         rows.append(
             AuditPageRow(
                 source=source,
+                url_kind=url_kind,
                 canton=canton,
                 page_requested=page_number,
                 page_parsed="yes" if parsed else "no",
@@ -866,6 +898,7 @@ async def _run(args: argparse.Namespace) -> int:
                 all_rows.append(
                     AuditPageRow(
                         source=source,
+                        url_kind="default",
                         canton=canton,
                         page_requested=0,
                         page_parsed="no",
@@ -894,13 +927,85 @@ async def _run(args: argparse.Namespace) -> int:
                 )
                 continue
 
-            if not source_config.enabled or not source_config.url:
+            source_urls = get_sale_source_urls(source=source, canton=canton)
+            if not source_urls and source_config.url:
+                source_urls = [SourceUrlConfig(url=source_config.url, url_kind="default")]
+
+            if not source_config.enabled:
                 message = source_config.note or "source disabled"
                 source_statuses.append("WARNING")
                 top_warnings.append(f"{canton}/{source}: disabled ({message})")
+                if not source_urls:
+                    all_rows.append(
+                        AuditPageRow(
+                            source=source,
+                            url_kind="default",
+                            canton=canton,
+                            page_requested=0,
+                            page_parsed="no",
+                            url_called="",
+                            http_status="SKIPPED",
+                            html_size_bytes=0,
+                            cache_path="",
+                            detected_total=0,
+                            detected_sale=0,
+                            detected_rent=0,
+                            detected_unknown=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            error_count=0,
+                            warning_count=1,
+                            warnings=message,
+                            errors="",
+                            source_status="WARNING",
+                            stopped_at_page=None,
+                            pagination_stopped_reason="SOURCE_DISABLED",
+                        )
+                    )
+                for source_url in source_urls:
+                    all_rows.append(
+                        AuditPageRow(
+                            source=source,
+                            url_kind=source_url.url_kind,
+                            canton=canton,
+                            page_requested=0,
+                            page_parsed="no",
+                            url_called=source_url.url,
+                            http_status="SKIPPED",
+                            html_size_bytes=0,
+                            cache_path="",
+                            detected_total=0,
+                            detected_sale=0,
+                            detected_rent=0,
+                            detected_unknown=0,
+                            kept_canton_count=0,
+                            excluded_canton_count=0,
+                            collected_count=0,
+                            created_count=0,
+                            updated_count=0,
+                            unchanged_count=0,
+                            error_count=0,
+                            warning_count=1,
+                            warnings=message,
+                            errors="",
+                            source_status="WARNING",
+                            stopped_at_page=None,
+                            pagination_stopped_reason="SOURCE_DISABLED",
+                        )
+                    )
+                continue
+
+            if not source_urls:
+                source_statuses.append("WARNING")
+                top_warnings.append(f"{canton}/{source}: no URL configured")
                 all_rows.append(
                     AuditPageRow(
                         source=source,
+                        url_kind="default",
                         canton=canton,
                         page_requested=0,
                         page_parsed="no",
@@ -920,49 +1025,59 @@ async def _run(args: argparse.Namespace) -> int:
                         unchanged_count=0,
                         error_count=0,
                         warning_count=1,
-                        warnings=message,
+                        warnings="No URL configured for source/canton",
                         errors="",
                         source_status="WARNING",
                         stopped_at_page=None,
-                        pagination_stopped_reason="SOURCE_DISABLED",
+                        pagination_stopped_reason="SOURCE_URL_MISSING",
                     )
                 )
                 continue
 
-            try:
-                (
-                    page_rows,
-                    source_warnings,
-                    source_status,
-                    stopped_at_page,
-                    stopped_reason,
-                    source_fetched_pages,
-                    source_loaded_from_cache_pages,
-                ) = await _collect_source_audit_rows(
-                    source=source,
-                    canton=canton,
-                    base_url=source_config.url,
-                    max_pages=args.max_pages,
-                    max_listings=args.max_listings,
-                    skip_fetch=args.skip_fetch,
-                    use_cache=args.use_cache,
-                    cache_max_age_hours=args.cache_max_age_hours,
-                    timeout=args.timeout,
-                    retries=args.retries,
-                    delay_seconds=args.delay_seconds,
-                )
-                all_rows.extend(page_rows)
-                top_warnings.extend(source_warnings)
-                source_statuses.append(source_status)
-                total_fetched_pages += source_fetched_pages
-                total_loaded_from_cache_pages += source_loaded_from_cache_pages
-                if source_status == "WARNING" and stopped_at_page is not None and stopped_reason:
-                    top_warnings.append(
-                        f"{canton}/{source} pagination stopped at page {stopped_at_page}: {stopped_reason}"
+            remaining_for_source = args.max_listings
+            for source_url in source_urls:
+                if remaining_for_source is not None and remaining_for_source <= 0:
+                    break
+                try:
+                    (
+                        page_rows,
+                        source_warnings,
+                        source_status,
+                        stopped_at_page,
+                        stopped_reason,
+                        source_fetched_pages,
+                        source_loaded_from_cache_pages,
+                    ) = await _collect_source_audit_rows(
+                        source=source,
+                        url_kind=source_url.url_kind,
+                        canton=canton,
+                        base_url=source_url.url,
+                        max_pages=args.max_pages,
+                        max_listings=remaining_for_source,
+                        skip_fetch=args.skip_fetch,
+                        use_cache=args.use_cache,
+                        cache_max_age_hours=args.cache_max_age_hours,
+                        timeout=args.timeout,
+                        retries=args.retries,
+                        delay_seconds=args.delay_seconds,
                     )
-            except Exception as exc:
-                source_statuses.append("FAIL")
-                top_warnings.append(f"{canton}/{source}: unexpected audit error: {exc}")
+                    all_rows.extend(page_rows)
+                    top_warnings.extend(source_warnings)
+                    source_statuses.append(source_status)
+                    total_fetched_pages += source_fetched_pages
+                    total_loaded_from_cache_pages += source_loaded_from_cache_pages
+                    if remaining_for_source is not None:
+                        remaining_for_source = max(
+                            0,
+                            remaining_for_source - sum(row.collected_count for row in page_rows),
+                        )
+                    if source_status == "WARNING" and stopped_at_page is not None and stopped_reason:
+                        top_warnings.append(
+                            f"{canton}/{source}/{source_url.url_kind} pagination stopped at page {stopped_at_page}: {stopped_reason}"
+                        )
+                except Exception as exc:
+                    source_statuses.append("FAIL")
+                    top_warnings.append(f"{canton}/{source}/{source_url.url_kind}: unexpected audit error: {exc}")
 
         try:
             global_exports, global_quality, by_canton_exports, by_canton_quality = await _generate_exports(canton)

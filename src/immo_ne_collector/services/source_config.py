@@ -77,6 +77,50 @@ DEFAULT_LOOKMOVE_VS_SALE_URL = (
     "appartements-maisons%2C3/valais-vs%2C100024"
 )
 
+DEFAULT_HOMEGATE_GE_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-geneve/liste-annonces"
+)
+DEFAULT_HOMEGATE_GE_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-geneve/liste-annonces"
+)
+DEFAULT_HOMEGATE_VD_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-vaud/liste-annonces"
+)
+DEFAULT_HOMEGATE_VD_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-vaud/liste-annonces"
+)
+DEFAULT_HOMEGATE_NE_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-neuchatel/liste-annonces"
+)
+DEFAULT_HOMEGATE_NE_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-neuchatel/liste-annonces"
+)
+DEFAULT_HOMEGATE_JU_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-jura/liste-annonces"
+)
+DEFAULT_HOMEGATE_JU_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-jura/liste-annonces"
+)
+DEFAULT_HOMEGATE_FR_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-fribourg/liste-annonces"
+)
+DEFAULT_HOMEGATE_FR_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-fribourg/liste-annonces"
+)
+DEFAULT_HOMEGATE_VS_SALE_RESIDENTIAL_URL = (
+    "https://www.homegate.ch/acheter/biens-immobiliers/canton-valais/liste-annonces"
+)
+DEFAULT_HOMEGATE_VS_SALE_LAND_URL = (
+    "https://www.homegate.ch/acheter/terrain/canton-valais/liste-annonces"
+)
+
+
+@dataclass(frozen=True)
+class SourceUrlConfig:
+    url: str
+    url_kind: str = "default"
+    note: str | None = None
+
 
 @dataclass(frozen=True)
 class SourceCantonConfig:
@@ -84,6 +128,7 @@ class SourceCantonConfig:
     canton: str
     url: str | None
     enabled: bool
+    urls: tuple[SourceUrlConfig, ...] = ()
     note: str | None = None
 
 
@@ -175,6 +220,128 @@ SALE_SOURCE_CANTON_CONFIGS: dict[str, dict[str, SourceCantonConfig]] = {
             url=DEFAULT_LOOKMOVE_VS_SALE_URL,
             enabled=True,
             note="URL publique canton Valais.",
+        ),
+    },
+    "homegate": {
+        "GE": SourceCantonConfig(
+            source="homegate",
+            canton="GE",
+            url=DEFAULT_HOMEGATE_GE_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_GE_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_GE_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente GE (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+        "VD": SourceCantonConfig(
+            source="homegate",
+            canton="VD",
+            url=DEFAULT_HOMEGATE_VD_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_VD_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_VD_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente VD (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+        "NE": SourceCantonConfig(
+            source="homegate",
+            canton="NE",
+            url=DEFAULT_HOMEGATE_NE_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_NE_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_NE_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente NE (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+        "JU": SourceCantonConfig(
+            source="homegate",
+            canton="JU",
+            url=DEFAULT_HOMEGATE_JU_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_JU_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_JU_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente JU (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+        "FR": SourceCantonConfig(
+            source="homegate",
+            canton="FR",
+            url=DEFAULT_HOMEGATE_FR_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_FR_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_FR_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente FR (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
+        ),
+        "VS": SourceCantonConfig(
+            source="homegate",
+            canton="VS",
+            url=DEFAULT_HOMEGATE_VS_SALE_RESIDENTIAL_URL,
+            enabled=False,
+            urls=(
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_VS_SALE_RESIDENTIAL_URL,
+                    url_kind="residential",
+                ),
+                SourceUrlConfig(
+                    url=DEFAULT_HOMEGATE_VS_SALE_LAND_URL,
+                    url_kind="land",
+                ),
+            ),
+            note=(
+                "URLs candidates Homegate vente VS (residential + land). Désactivée par défaut: validation prudente requise "
+                "(anti-bot/Cloudflare fréquent en fetch HTTP simple)."
+            ),
         ),
     },
 }
@@ -420,11 +587,21 @@ def get_sale_search_url(*, source: str, canton: str) -> str:
         raise ValueError(
             f"Source '{config.source}' is configured but disabled for canton '{config.canton}'.{note}"
         )
-    if not config.url:
+    urls = get_sale_source_urls(source=source, canton=canton)
+    if not urls:
         raise ValueError(
             f"Source '{config.source}' canton '{config.canton}' has no URL configured."
         )
-    return config.url
+    return urls[0].url
+
+
+def get_sale_source_urls(*, source: str, canton: str) -> list[SourceUrlConfig]:
+    config = get_sale_source_config(source=source, canton=canton)
+    if config.urls:
+        return list(config.urls)
+    if config.url:
+        return [SourceUrlConfig(url=config.url, url_kind="default")]
+    return []
 
 
 def build_canton_property_filter(canton: str) -> Callable[[Property], bool]:

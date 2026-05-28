@@ -57,6 +57,17 @@ def test_build_anibis_page_urls_generates_expected_pages() -> None:
     assert "page=3" in urls[2]
 
 
+def test_build_homegate_page_urls_generates_expected_pages() -> None:
+    urls = MODULE._build_homegate_page_urls(
+        "https://www.homegate.ch/acheter/maison/canton-neuchatel/liste-annonces",
+        3,
+    )
+    assert len(urls) == 3
+    assert "ep=1" in urls[0]
+    assert "ep=2" in urls[1]
+    assert "ep=3" in urls[2]
+
+
 def test_validate_args_rejects_max_pages_over_limit() -> None:
     parser = MODULE._build_parser()
     args = parser.parse_args(["--canton", "NE", "--max-pages", "11"])
@@ -101,6 +112,27 @@ def test_run_rejects_unknown_canton() -> None:
     args = parser.parse_args(["--canton", "XX", "--sources", "lookmove"])
     rc = asyncio.run(MODULE._run(args))
     assert rc == 2
+
+
+def test_run_homegate_disabled_source_returns_warning_not_fail(monkeypatch, tmp_path: Path) -> None:
+    parser = MODULE._build_parser()
+    args = parser.parse_args(["--canton", "NE", "--sources", "homegate", "--max-pages", "1"])
+
+    async def fake_generate_exports(_canton):
+        from types import SimpleNamespace
+
+        return (
+            [SimpleNamespace(name="MASTER", path=tmp_path / "master.csv", row_count=0)],
+            SimpleNamespace(name="QUALITY_REPORT", path=tmp_path / "quality.csv", row_count=0),
+            [SimpleNamespace(name="MASTER", path=tmp_path / "by_canton_master.csv", row_count=0)],
+            SimpleNamespace(name="QUALITY_REPORT", path=tmp_path / "by_canton_quality.csv", row_count=0),
+        )
+
+    monkeypatch.setattr(MODULE, "_generate_exports", fake_generate_exports)
+    monkeypatch.setattr(MODULE, "_write_audit_report", lambda *a, **k: None)
+
+    rc = asyncio.run(MODULE._run(args))
+    assert rc == 0
 
 
 def test_lookmove_without_clear_pagination_stops_after_page_one(monkeypatch, tmp_path: Path) -> None:
@@ -152,6 +184,7 @@ def test_lookmove_without_clear_pagination_stops_after_page_one(monkeypatch, tmp
     rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
         MODULE._collect_source_audit_rows(
             source="lookmove",
+            url_kind="default",
             canton="NE",
             base_url="https://www.lookmove.ch/fr/immobilier/acheter/appartements-maisons%2C3/neuchatel-ne%2C100013",
             max_pages=3,
@@ -212,6 +245,7 @@ def test_detect_listing_warnings_finds_out_of_canton_and_suspect_npa_price() -> 
 def test_audit_report_csv_is_generated(tmp_path: Path) -> None:
     row = MODULE.AuditPageRow(
         source="anibis",
+        url_kind="default",
         canton="NE",
         page_requested=1,
         page_parsed="yes",
@@ -245,6 +279,7 @@ def test_audit_report_csv_is_generated(tmp_path: Path) -> None:
         rows = list(csv.DictReader(file_obj))
     assert len(rows) == 1
     assert rows[0]["source"] == "anibis"
+    assert rows[0]["url_kind"] == "default"
     assert rows[0]["source_status"] == "WARNING"
     assert rows[0]["stopped_at_page"] == "5"
     assert rows[0]["pagination_stopped_reason"] == "HTTP_403"
@@ -312,6 +347,7 @@ def test_lookmove_http_403_after_success_stops_with_warning(monkeypatch, tmp_pat
     rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
         MODULE._collect_source_audit_rows(
             source="lookmove",
+            url_kind="default",
             canton="NE",
             base_url="https://www.lookmove.ch/fr/immobilier/acheter/appartements-maisons%2C3/neuchatel-ne%2C100013",
             max_pages=10,
@@ -333,6 +369,90 @@ def test_lookmove_http_403_after_success_stops_with_warning(monkeypatch, tmp_pat
     assert rows[-1].pagination_stopped_reason == "HTTP_403"
     assert fetched_pages == 1
     assert loaded_from_cache == 0
+
+
+def test_homegate_http_403_after_success_stops_with_warning(monkeypatch, tmp_path: Path) -> None:
+    page1 = tmp_path / "homegate_p1.html"
+    page1.write_text("<html><body></body></html>", encoding="utf-8")
+
+    calls = {"count": 0}
+
+    async def fake_fetch_or_reuse_page(**kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return ("200", page1.stat().st_size, page1, page1.read_text(encoding="utf-8"), [])
+        raise MODULE.ScraperHTTPError(source="homegate", status_code=403, url=kwargs["url"])
+
+    async def fake_collect_and_normalize(_scraper):
+        return CollectionBatch(
+            source="homegate_cached",
+            collected_count=1,
+            listings=[
+                _listing(
+                    idx=1,
+                    url="https://www.homegate.ch/acheter/maison/canton-neuchatel/listing-4000000001",
+                    city="Neuchatel",
+                    postal_code="2000",
+                )
+            ],
+        )
+
+    def fake_filter_collection_batch(batch, *, max_listings, transaction_type, canton):
+        from immo_ne_collector.services.anibis_filters import FilterStats
+
+        return (
+            batch,
+            FilterStats(
+                detected_total=1,
+                transaction_counts={"sale": 1, "rent": 0, "unknown": 0},
+                kept_canton_count=1,
+                excluded_canton_count=0,
+                excluded_examples=[],
+                filtered_count=1,
+            ),
+        )
+
+    async def fake_persist_collection_batch(_batch):
+        class _R:
+            collected_count = 1
+            created_count = 1
+            updated_count = 0
+            unchanged_count = 0
+            errors: list[str] = []
+
+        return _R()
+
+    monkeypatch.setattr(MODULE, "_fetch_or_reuse_page", fake_fetch_or_reuse_page)
+    monkeypatch.setattr(MODULE, "collect_and_normalize", fake_collect_and_normalize)
+    monkeypatch.setattr(MODULE, "filter_collection_batch", fake_filter_collection_batch)
+    monkeypatch.setattr(MODULE, "persist_collection_batch", fake_persist_collection_batch)
+
+    rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
+        MODULE._collect_source_audit_rows(
+            source="homegate",
+            url_kind="default",
+            canton="NE",
+            base_url="https://www.homegate.ch/acheter/maison/canton-neuchatel/liste-annonces",
+            max_pages=3,
+            max_listings=None,
+            skip_fetch=False,
+            use_cache=False,
+            cache_max_age_hours=24,
+            timeout=None,
+            retries=None,
+            delay_seconds=0,
+        )
+    )
+
+    assert source_status == "WARNING"
+    assert stopped_at_page == 2
+    assert stopped_reason == "HTTP_403"
+    assert rows
+    assert rows[-1].warning_count == 1
+    assert rows[-1].error_count == 0
+    assert fetched_pages == 1
+    assert loaded_from_cache == 0
+    assert any("pagination stopped at page 2" in w for w in [rows[-1].warnings, *warnings])
 
 
 def test_fetch_or_reuse_page_use_cache_skips_fetch(monkeypatch, tmp_path: Path) -> None:
@@ -408,6 +528,7 @@ def test_lookmove_http_403_on_first_page_is_warning(monkeypatch) -> None:
     rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
         MODULE._collect_source_audit_rows(
             source="lookmove",
+            url_kind="default",
             canton="NE",
             base_url="https://www.lookmove.ch/fr/immobilier/acheter/appartements-maisons%2C3/neuchatel-ne%2C100013",
             max_pages=3,
@@ -491,6 +612,7 @@ def test_anibis_timeout_after_success_stops_with_warning(monkeypatch, tmp_path: 
     rows, warnings, source_status, stopped_at_page, stopped_reason, fetched_pages, loaded_from_cache = asyncio.run(
         MODULE._collect_source_audit_rows(
             source="anibis",
+            url_kind="default",
             canton="NE",
             base_url="https://www.anibis.ch/fr/q/test?page=1",
             max_pages=3,

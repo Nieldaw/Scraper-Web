@@ -128,6 +128,29 @@ async def test_export_master_with_single_property_and_multiple_source_listings(t
 
 
 @pytest.mark.asyncio
+async def test_export_master_includes_homegate_in_sources(tmp_path: Path) -> None:
+    token = f"exp-homegate-{uuid4().hex[:8]}"
+    now = datetime.now(UTC)
+    row = await _create_property_with_listings(
+        token=token,
+        first_seen_at=now,
+        last_seen_at=now,
+        last_changed_at=now,
+        status=PropertyStatus.ACTIVE,
+        source_names=["anibis_cached", "lookmove_cached", "homegate_cached"],
+        transaction_types=["sale", "sale", "sale"],
+    )
+
+    async with AsyncSessionLocal() as session:
+        result = await export_master_csv(session, tmp_path / "master.csv")
+
+    rows = _read_csv(result.path)
+    exported = next(item for item in rows if item["property_id"] == str(row.id))
+    sources = json.loads(exported["sources"])
+    assert "homegate_cached" in sources
+
+
+@pytest.mark.asyncio
 async def test_export_master_contains_minimum_data_contract_fields(tmp_path: Path) -> None:
     token = f"exp-fields-{uuid4().hex[:8]}"
     now = datetime.now(UTC)
