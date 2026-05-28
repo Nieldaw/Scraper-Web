@@ -27,12 +27,13 @@ async def _create_property(
     sitn_eligible: bool = False,
     completion_reason: str | None = None,
     sitn_status: str = SitnStatus.NOT_RUN,
+    property_type: str = "appartement",
 ) -> Property:
     token = uuid4().hex[:8]
     now = datetime.now(UTC)
     property_row = Property(
         title=title,
-        property_type="appartement",
+        property_type=property_type,
         price_chf=price_chf,
         rooms=rooms,
         living_area_m2=living_area_m2,
@@ -60,7 +61,7 @@ async def _create_property(
                 source_listing_id=f"id-{token}",
                 url=f"https://example.local/{token}",
                 title=title,
-                property_type="appartement",
+                property_type=property_type,
                 price_chf=price_chf,
                 rooms=rooms,
                 living_area_m2=living_area_m2,
@@ -181,3 +182,23 @@ async def test_quality_report_csv_is_generated(tmp_path: Path) -> None:
         rows = list(csv.DictReader(file_obj))
     assert rows
     assert "issue_code" in rows[0]
+
+
+@pytest.mark.asyncio
+async def test_quality_terrain_does_not_trigger_rooms_or_area_residential_warnings() -> None:
+    await _create_property(
+        title="Terrain constructible",
+        transaction_type="sale",
+        price_chf=420000,
+        rooms=30,
+        living_area_m2=8,
+        property_type="terrain",
+        city="Fribourg",
+        postal_code="1700",
+    )
+    rows = await _quality_rows()
+    codes = {row["issue_code"] for row in rows}
+    assert "ROOMS_TOO_HIGH" not in codes
+    assert "ROOMS_TOO_LOW" not in codes
+    assert "AREA_TOO_LOW" not in codes
+    assert "AREA_TOO_HIGH" not in codes

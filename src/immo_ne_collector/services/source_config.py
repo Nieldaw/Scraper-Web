@@ -17,9 +17,9 @@ ROMANDY_CANTONS: tuple[str, ...] = ("GE", "VD", "NE", "JU", "FR", "VS")
 DetectedCanton = Literal["GE", "VD", "NE", "JU", "FR", "VS", "unknown"]
 
 DEFAULT_ANIBIS_NE_SALE_URL = (
-    "https://www.anibis.ch/fr/q/immobilier-neuchatel-appartements-maisons-acheter/"
-    "Ak8CqcmVhbEVzdGF0ZZSSkqtsaXN0aW5nVHlwZZKpYXBhcnRtZW50pWhvdXNlkqlwcmljZVR5cGWjQlVZwMCRk6hsb2NhdGlv"
-    "brRnZW8tY2FudG9uLW5ldWNoYXRlbMA?sorting=newest&page=1"
+    "https://www.anibis.ch/fr/q/immobilier-neuchatel-appartements-maisons-terrains-acheter/"
+    "Ak8CqcmVhbEVzdGF0ZZSSkqtsaXN0aW5nVHlwZZOpYXBhcnRtZW50pWhvdXNlrmJ1aWxkaW5nR3JvdW5kkqlwcmljZVR5cGWj"
+    "QlVZwMCRk6hsb2NhdGlvbrRnZW8tY2FudG9uLW5ldWNoYXRlbMA?sorting=newest&page=1"
 )
 DEFAULT_ANIBIS_GE_SALE_URL = (
     "https://www.anibis.ch/fr/q/immobilier-geneve-appartements-maisons-terrains-acheter/"
@@ -44,7 +44,12 @@ DEFAULT_ANIBIS_VS_SALE_URL = (
 DEFAULT_ANIBIS_FR_SALE_URL_CANDIDATE = (
     "https://www.anibis.ch/fr/q/immobilier-fribourg-appartements-maisons-terrains-acheter/"
     "Ak8CqcmVhbEVzdGF0ZZSSkqtsaXN0aW5nVHlwZZOpYXBhcnRtZW50pWhvdXNlrmJ1aWxkaW5nR3JvdW5kkqlwcmljZVR5cGWj"
-    "QlVZwMCRk6hsb2NhdGlvbrFnZW8tY2FudG9uLWZyaWJvdXJnwA?sorting=newest&page=1"
+    "QlVZwMCRk6hsb2NhdGlvbrNnZW8tY2FudG9uLWZyaWJvdXJnwA?sorting=newest&page=1"
+)
+DEFAULT_ANIBIS_BE_SALE_URL_FUTURE = (
+    "https://www.anibis.ch/fr/q/immobilier-berne-appartements-maisons-terrains-acheter/"
+    "Ak8CqcmVhbEVzdGF0ZZSSkqtsaXN0aW5nVHlwZZOpYXBhcnRtZW50pWhvdXNlrmJ1aWxkaW5nR3JvdW5kkqlwcmljZVR5cGWj"
+    "QlVZwMCRk6hsb2NhdGlvbq9nZW8tY2FudG9uLWJlcm7A?sorting=newest&page=1"
 )
 
 DEFAULT_LOOKMOVE_GE_SALE_URL = (
@@ -82,8 +87,7 @@ class SourceCantonConfig:
     note: str | None = None
 
 
-# Anibis: URLs validées en mode prudent pour GE, VD, NE, JU, VS.
-# FR reste désactivé tant qu'une URL canton fiable n'est pas confirmée.
+# Anibis: URLs validées en mode prudent pour GE, VD, NE, JU, FR, VS.
 SALE_SOURCE_CANTON_CONFIGS: dict[str, dict[str, SourceCantonConfig]] = {
     "anibis": {
         "GE": SourceCantonConfig(
@@ -118,11 +122,8 @@ SALE_SOURCE_CANTON_CONFIGS: dict[str, dict[str, SourceCantonConfig]] = {
             source="anibis",
             canton="FR",
             url=DEFAULT_ANIBIS_FR_SALE_URL_CANDIDATE,
-            enabled=False,
-            note=(
-                "URL candidate FR testée mais non fiable (beaucoup d'annonces hors immobilier / hors canton). "
-                "Reste disabled en attente d'une URL canton valide."
-            ),
+            enabled=True,
+            note="URL vente FR validée en mode prudent (appartements/maisons/terrains, filtre strict).",
         ),
         "VS": SourceCantonConfig(
             source="anibis",
@@ -180,6 +181,10 @@ SALE_SOURCE_CANTON_CONFIGS: dict[str, dict[str, SourceCantonConfig]] = {
 
 SUPPORTED_SOURCES: tuple[str, ...] = tuple(SALE_SOURCE_CANTON_CONFIGS.keys())
 SUPPORTED_CANTONS: tuple[str, ...] = ROMANDY_CANTONS
+
+# Future source note:
+# BE URL is known but intentionally excluded from SUPPORTED_CANTONS and --all-romandie.
+# It needs a dedicated strategy for Bern/Jura bernois/Bienne before activation.
 
 
 _CANTON_URL_TOKENS: dict[str, tuple[str, ...]] = {

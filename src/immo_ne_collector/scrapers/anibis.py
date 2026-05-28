@@ -157,6 +157,11 @@ class AnibisCachedHtmlScraper(BaseScraper):
             return "appartement"
         if "/immobilier/maisons/" in lowered_href:
             return "maison"
+        if "/immobilier/terrains/" in lowered_href:
+            return "terrain"
+        normalized_title = self._normalize_text(self._extract_title(card))
+        if "terrain" in normalized_title or "parcelle" in normalized_title:
+            return "terrain"
         return None
 
     def _extract_price(self, card) -> str | None:

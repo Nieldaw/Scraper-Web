@@ -1,6 +1,8 @@
 import pytest
 
 from immo_ne_collector.services.source_config import (
+    DEFAULT_ANIBIS_BE_SALE_URL_FUTURE,
+    DEFAULT_ANIBIS_FR_SALE_URL_CANDIDATE,
     DEFAULT_ANIBIS_GE_SALE_URL,
     DEFAULT_ANIBIS_JU_SALE_URL,
     DEFAULT_ANIBIS_NE_SALE_URL,
@@ -13,6 +15,7 @@ from immo_ne_collector.services.source_config import (
     DEFAULT_LOOKMOVE_VD_SALE_URL,
     DEFAULT_LOOKMOVE_VS_SALE_URL,
     ROMANDY_CANTONS,
+    SUPPORTED_CANTONS,
     get_sale_search_url,
     get_sale_source_config,
     infer_detected_canton,
@@ -22,9 +25,12 @@ from immo_ne_collector.services.source_config import (
 
 def test_source_config_contains_romandy_cantons() -> None:
     assert ROMANDY_CANTONS == ("GE", "VD", "NE", "JU", "FR", "VS")
+    assert "BE" not in ROMANDY_CANTONS
+    assert "BE" not in SUPPORTED_CANTONS
 
 
 def test_source_config_returns_enabled_urls() -> None:
+    assert get_sale_search_url(source="anibis", canton="FR") == DEFAULT_ANIBIS_FR_SALE_URL_CANDIDATE
     assert get_sale_search_url(source="anibis", canton="GE") == DEFAULT_ANIBIS_GE_SALE_URL
     assert get_sale_search_url(source="anibis", canton="VD") == DEFAULT_ANIBIS_VD_SALE_URL
     assert get_sale_search_url(source="anibis", canton="NE") == DEFAULT_ANIBIS_NE_SALE_URL
@@ -43,14 +49,9 @@ def test_source_config_raises_for_unsupported_source() -> None:
         get_sale_search_url(source="unknown_source", canton="NE")
 
 
-def test_source_config_raises_for_disabled_anibis_canton() -> None:
-    with pytest.raises(ValueError, match="configured but disabled"):
-        get_sale_search_url(source="anibis", canton="FR")
-
-
-def test_get_sale_source_config_disabled_entry_contains_note() -> None:
+def test_get_sale_source_config_anibis_fr_entry_contains_note() -> None:
     config = get_sale_source_config(source="anibis", canton="FR")
-    assert config.enabled is False
+    assert config.enabled is True
     assert config.url is not None
     assert config.note is not None
 
@@ -88,3 +89,9 @@ def test_infer_detected_canton_from_url_city_slug_keyword() -> None:
     )
     assert detected == "NE"
     assert reason == "url"
+
+
+def test_source_config_exposes_be_future_url_but_keeps_it_out_of_supported_cantons() -> None:
+    assert "immobilier-berne-appartements-maisons-terrains-acheter" in DEFAULT_ANIBIS_BE_SALE_URL_FUTURE
+    with pytest.raises(ValueError, match="not supported in MVP"):
+        get_sale_search_url(source="anibis", canton="BE")

@@ -3,16 +3,23 @@
 ## Perimetre
 
 Source cible MVP: Anibis, annonces de vente immobilieres sur cantons romands configures.
+Types inclus dans le perimetre courant: appartements, maisons, terrains.
 
 Cantons Anibis valides actuellement:
 - GE
 - VD
 - NE
 - JU
+- FR
 - VS
 
 Cantons Anibis encore en attente:
-- FR (URL candidate testee mais non fiable, reste disabled)
+- aucun (dans le perimetre romand actuel)
+
+## Note BE (hors Romandie par defaut)
+
+Une URL Anibis Berne est connue, mais `BE` n'est pas inclus dans `--all-romandie` ni dans les cantons supportes MVP.
+Une logique separee sera necessaire pour traiter proprement Berne / Jura bernois / Bienne.
 
 Validation/collecte pilotee via:
 

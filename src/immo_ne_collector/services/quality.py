@@ -183,7 +183,7 @@ def _property_issues(
                 )
             )
 
-    if rooms is not None:
+    if _is_residential_type(property_row.property_type) and rooms is not None:
         if rooms < thresholds.min_rooms:
             issues.append(
                 QualityIssue(

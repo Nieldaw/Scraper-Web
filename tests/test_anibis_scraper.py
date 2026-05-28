@@ -180,6 +180,26 @@ def test_anibis_parser_generates_stable_source_listing_id_from_url(tmp_path: Pat
     assert parsed[0].source_listing_id == parsed_again[0].source_listing_id
 
 
+def test_anibis_parser_recognizes_terrain_property_type_from_url(tmp_path: Path) -> None:
+    file_path = tmp_path / "terrain.html"
+    html = (
+        "<html><body>"
+        "<div data-private-srp-listing-item-id='555555'>"
+        "<h2><a href='/fr/vi/neuchatel/immobilier/terrains/parcelle-a-vendre/555555'>"
+        "Terrain à bâtir à vendre"
+        "</a></h2>"
+        "<span>Neuchâtel, 2000</span>"
+        "</div>"
+        "</body></html>"
+    )
+    file_path.write_text(html, encoding="utf-8")
+    scraper = AnibisCachedHtmlScraper(html_path=file_path)
+
+    listings = scraper.parse_html(html)
+    assert len(listings) == 1
+    assert listings[0].property_type == "terrain"
+
+
 @pytest.mark.asyncio
 async def test_pipeline_anibis_fixture_to_normalization() -> None:
     scraper = AnibisCachedHtmlScraper(
