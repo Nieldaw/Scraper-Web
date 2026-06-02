@@ -132,6 +132,7 @@ def test_run_homegate_disabled_source_returns_warning_not_fail(monkeypatch, tmp_
         )
 
     monkeypatch.setattr(MODULE, "_generate_exports", fake_generate_exports)
+    monkeypatch.setattr(MODULE, "_validate_by_canton_exports", lambda _canton: ([], []))
     rc = asyncio.run(MODULE._run(args))
     assert rc == 0
     with output_path.open("r", encoding="utf-8", newline="") as file_obj:
@@ -159,6 +160,7 @@ def test_run_immoscout_disabled_source_returns_warning_not_fail(monkeypatch, tmp
         )
 
     monkeypatch.setattr(MODULE, "_generate_exports", fake_generate_exports)
+    monkeypatch.setattr(MODULE, "_validate_by_canton_exports", lambda _canton: ([], []))
     rc = asyncio.run(MODULE._run(args))
     assert rc == 0
     with output_path.open("r", encoding="utf-8", newline="") as file_obj:

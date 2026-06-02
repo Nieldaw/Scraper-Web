@@ -111,6 +111,45 @@ Fichiers generes:
 - Aucun contournement n'est implemente (pas de Playwright, proxy, headless furtif, CAPTCHA).
 - Details: `docs/08_homegate_source.md`.
 
+## Sources et statut MVP
+
+- Statut consolide des sources: `docs/10_sources_status.md`.
+- ImmoScout (configure, disabled par defaut): `docs/09_immoscout_source.md`.
+- Homegate (configure, disabled par defaut): `docs/08_homegate_source.md`.
+- Anibis et Lookmove: actifs en mode prudent avec filtre canton strict.
+
+## Exports par canton
+
+Les exports globaux restent disponibles dans `data/exports/`.
+
+Les exports par canton sont generes dans:
+
+- `data/exports/by_canton/GE/`
+- `data/exports/by_canton/VD/`
+- `data/exports/by_canton/NE/`
+- `data/exports/by_canton/JU/`
+- `data/exports/by_canton/FR/`
+- `data/exports/by_canton/VS/`
+
+Chaque dossier peut contenir:
+
+- `master.csv`
+- `nouveaux.csv`
+- `modifies.csv`
+- `inactifs.csv`
+- `ventes.csv`
+- `locations.csv`
+- `deduplication_report.csv`
+- `quality_report.csv`
+
+## Validation MVP rapide
+
+```bash
+python3 scripts/audit_sale_collection.py --all-romandie --sources anibis,lookmove --max-pages 3 --use-cache
+python3 scripts/export_csv.py
+pytest -q
+```
+
 ## Structure
 
 ```text
