@@ -4,6 +4,7 @@ import unicodedata
 from urllib.parse import urlparse
 
 CITY_BY_SLUG: dict[str, str] = {
+    # Neuchâtel (NE)
     "neuchatel": "Neuchâtel",
     "la-chaux-de-fonds": "La Chaux-de-Fonds",
     "chaux-de-fonds": "La Chaux-de-Fonds",
@@ -25,9 +26,53 @@ CITY_BY_SLUG: dict[str, str] = {
     "lignieres": "Lignières",
     "noiraigue": "Noiraigue",
     "bole": "Bôle",
+    # Genève (GE)
+    "geneve": "Genève",
+    "carouge": "Carouge",
+    "meyrin": "Meyrin",
+    "vernier": "Vernier",
+    "onex": "Onex",
+    "lancy": "Lancy",
+    "versoix": "Versoix",
+    # Vaud (VD)
+    "lausanne": "Lausanne",
+    "nyon": "Nyon",
+    "morges": "Morges",
+    "vevey": "Vevey",
+    "yverdon": "Yverdon",
+    "renens": "Renens",
+    "pully": "Pully",
+    "montreux": "Montreux",
+    "montagny-pres-yverdon": "Montagny-près-Yverdon",
+    # Jura (JU)
+    "delemont": "Délémont",
+    "delémont": "Délémont",
+    "porrentruy": "Porrentruy",
+    "saignelegier": "Saignelégier",
+    "courgenay": "Courgenay",
+    "courrendlin": "Courrendlin",
+    "bassecourt": "Bassecourt",
+    # Fribourg (FR)
+    "fribourg": "Fribourg",
+    "bulle": "Bulle",
+    "romont": "Romont",
+    "murten": "Morat",
+    "morat": "Morat",
+    "villars-sur-glane": "Villars-sur-Glâne",
+    "estavayer": "Estavayer",
+    # Valais (VS)
+    "sion": "Sion",
+    "sierre": "Sierre",
+    "martigny": "Martigny",
+    "monthey": "Monthey",
+    "verbier": "Verbier",
+    "crans-montana": "Crans-Montana",
+    "visp": "Visp",
+    "brig": "Brig",
 }
 
 POSTAL_BY_CITY: dict[str, str] = {
+    # Neuchâtel (NE)
     "Neuchâtel": "2000",
     "La Chaux-de-Fonds": "2300",
     "Le Locle": "2400",
@@ -44,6 +89,47 @@ POSTAL_BY_CITY: dict[str, str] = {
     "Thielle": "2075",
     "Cernier": "2053",
     "Les Ponts-de-Martel": "2316",
+    # Genève (GE)
+    "Genève": "1200",
+    "Carouge": "1227",
+    "Meyrin": "1217",
+    "Vernier": "1214",
+    "Onex": "1213",
+    "Lancy": "1212",
+    "Versoix": "1290",
+    # Vaud (VD)
+    "Lausanne": "1000",
+    "Nyon": "1260",
+    "Morges": "1110",
+    "Vevey": "1800",
+    "Yverdon": "1400",
+    "Renens": "1020",
+    "Pully": "1009",
+    "Montreux": "1820",
+    "Montagny-près-Yverdon": "1424",
+    # Jura (JU)
+    "Délémont": "2800",
+    "Porrentruy": "2900",
+    "Saignelégier": "2350",
+    "Courgenay": "2932",
+    "Courrendlin": "2900",
+    "Bassecourt": "2854",
+    # Fribourg (FR)
+    "Fribourg": "1700",
+    "Bulle": "1630",
+    "Romont": "1680",
+    "Morat": "3280",
+    "Villars-sur-Glâne": "1752",
+    "Estavayer": "1470",
+    # Valais (VS)
+    "Sion": "1950",
+    "Sierre": "3960",
+    "Martigny": "1920",
+    "Monthey": "1870",
+    "Verbier": "1936",
+    "Crans-Montana": "3963",
+    "Visp": "3930",
+    "Brig": "3900",
 }
 
 

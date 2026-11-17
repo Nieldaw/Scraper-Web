@@ -23,6 +23,25 @@ def _to_float_percent(value: float) -> str:
     return f"{value:.2f}"
 
 
+def _escape_markdown_cell(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _markdown_table(headers: list[str], rows: list[list[object]]) -> str:
+    if not rows:
+        return ""
+
+    rendered_rows = [[_escape_markdown_cell(cell) for cell in row] for row in rows]
+    separator = ["---" for _ in headers]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(separator) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in rendered_rows)
+    return "\n".join(lines)
+
+
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
@@ -228,3 +247,95 @@ def write_quality_summary_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(file_obj, fieldnames=QUALITY_SUMMARY_HEADERS)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _summary_rows_by_section(rows: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    grouped: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in rows:
+        grouped[row.get("section", "")].append(row)
+    return grouped
+
+
+def build_quality_summary_markdown(rows: list[dict[str, str]]) -> str:
+    grouped = _summary_rows_by_section(rows)
+    overview_rows = grouped.get("overview", [])
+    by_issue_code_rows = grouped.get("by_issue_code", [])
+
+    def _overview_value(dimension: str, key: str) -> str:
+        for row in overview_rows:
+            if row.get("dimension") == dimension:
+                return row.get(key, "0")
+        return "0"
+
+    total_issues = _overview_value("total_issues", "count_issues")
+    total_properties_in_master = _overview_value("total_properties_in_master", "count_properties")
+    properties_with_issues = _overview_value("properties_with_issues", "count_properties")
+    pct_properties_with_issues = _overview_value("properties_with_issues", "percentage")
+
+    lines: list[str] = ["# Resume qualite", ""]
+    lines.extend(
+        [
+            "## Highlights",
+            f"- Total issues: {total_issues}",
+            f"- Biens concernes: {properties_with_issues}",
+            f"- Biens dans master: {total_properties_in_master}",
+            f"- Pourcentage des biens avec alerte: {pct_properties_with_issues}%",
+        ]
+    )
+    if by_issue_code_rows:
+        top_codes = ", ".join(
+            f"{row['dimension_value']} ({row['count_issues']})"
+            for row in by_issue_code_rows[:5]
+        )
+        lines.append(f"- Top issue codes: {top_codes}")
+    else:
+        lines.append("- Top issue codes: none")
+    lines.append("")
+
+    section_specs = [
+        ("overview", "Overview", ["Metric", "Issues", "Properties", "Percentage", "Notes"]),
+        ("by_severity", "By severity", ["Value", "Issues", "Properties", "Percentage", "Notes"]),
+        ("by_issue_code", "By issue code", ["Value", "Issues", "Properties", "Percentage", "Notes"]),
+        ("by_canton", "By canton", ["Value", "Issues", "Properties", "Percentage", "Notes"]),
+        ("by_source", "By source", ["Value", "Issues", "Properties", "Percentage", "Notes"]),
+    ]
+
+    for section_name, title, headers in section_specs:
+        section_rows = grouped.get(section_name, [])
+        if not section_rows:
+            continue
+        lines.extend([f"## {title}", ""])
+        table_rows: list[list[object]] = []
+        for row in section_rows:
+            if section_name == "overview":
+                table_rows.append(
+                    [
+                        row.get("dimension", ""),
+                        row.get("count_issues", "0"),
+                        row.get("count_properties", "0"),
+                        row.get("percentage", "0.00"),
+                        row.get("notes", ""),
+                    ]
+                )
+            else:
+                table_rows.append(
+                    [
+                        row.get("dimension_value", ""),
+                        row.get("count_issues", "0"),
+                        row.get("count_properties", "0"),
+                        row.get("percentage", "0.00"),
+                        row.get("notes", ""),
+                    ]
+                )
+        lines.append(_markdown_table(headers, table_rows))
+        lines.append("")
+
+    if total_issues == "0":
+        lines.extend(["_No quality issues found in quality_report.csv._", ""])
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_quality_summary_markdown(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_quality_summary_markdown(rows), encoding="utf-8")

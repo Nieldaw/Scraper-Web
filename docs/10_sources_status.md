@@ -32,5 +32,6 @@ python3 scripts/collect_sale_by_canton.py --list-config --sources anibis,lookmov
 python3 scripts/audit_sale_collection.py --all-romandie --sources anibis,lookmove --max-pages 3 --use-cache
 python3 scripts/audit_sale_collection.py --all-romandie --sources homegate,immoscout --max-pages 1
 python3 scripts/export_csv.py
+python3 scripts/summarize_quality_report.py
 pytest -q
 ```

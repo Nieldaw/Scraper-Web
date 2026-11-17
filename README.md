@@ -103,6 +103,8 @@ Fichiers generes:
 
 - `data/exports/ventes.csv`
 - `data/exports/quality_report.csv`
+- `data/exports/quality_summary.csv`
+- `data/exports/quality_summary.md`
 
 ## Source Homegate (etat MVP)
 
@@ -147,6 +149,7 @@ Chaque dossier peut contenir:
 ```bash
 python3 scripts/audit_sale_collection.py --all-romandie --sources anibis,lookmove --max-pages 3 --use-cache
 python3 scripts/export_csv.py
+python3 scripts/summarize_quality_report.py
 pytest -q
 ```
 

@@ -16,6 +16,7 @@ from immo_ne_collector.services.quality_summary import (
     read_csv_rows,
     summarize_quality_rows,
     write_quality_summary_csv,
+    write_quality_summary_markdown,
 )
 
 
@@ -41,10 +42,16 @@ def _build_parser() -> argparse.ArgumentParser:
         default=ROOT / "data" / "exports" / "quality_summary.csv",
         help="Chemin du fichier de sortie (defaut: data/exports/quality_summary.csv).",
     )
+    parser.add_argument(
+        "--markdown-output",
+        type=Path,
+        default=ROOT / "data" / "exports" / "quality_summary.md",
+        help="Chemin du fichier Markdown de sortie (defaut: data/exports/quality_summary.md).",
+    )
     return parser
 
 
-def run(quality_report: Path, master_report: Path, output: Path) -> int:
+def run(quality_report: Path, master_report: Path, output: Path, markdown_output: Path) -> int:
     quality_rows = read_csv_rows(quality_report)
     total_properties = count_master_properties(master_report)
     summary_rows = summarize_quality_rows(
@@ -52,6 +59,7 @@ def run(quality_report: Path, master_report: Path, output: Path) -> int:
         total_properties_in_master=total_properties,
     )
     write_quality_summary_csv(output, summary_rows)
+    write_quality_summary_markdown(markdown_output, summary_rows)
 
     overview = {row["dimension"]: row for row in summary_rows if row.get("section") == "overview"}
     total_issues = overview.get("total_issues", {}).get("count_issues", "0")
@@ -61,6 +69,7 @@ def run(quality_report: Path, master_report: Path, output: Path) -> int:
     print(f"Quality report: {quality_report}")
     print(f"Master report: {master_report}")
     print(f"Summary output: {output}")
+    print(f"Markdown output: {markdown_output}")
     print(f"Total issues: {total_issues}")
     print(f"Properties with issues: {properties_with_issues}")
     print(f"Properties with issues (%): {pct}")
@@ -81,7 +90,7 @@ def run(quality_report: Path, master_report: Path, output: Path) -> int:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    raise SystemExit(run(args.quality_report, args.master_report, args.output))
+    raise SystemExit(run(args.quality_report, args.master_report, args.output, args.markdown_output))
 
 
 if __name__ == "__main__":
