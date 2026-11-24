@@ -8,7 +8,17 @@ from immo_ne_collector.db import Base
 from immo_ne_collector import models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("+asyncpg", ""))
+
+
+def _sync_database_url(url: str) -> str:
+    """URL synchrone pour Alembic : pilote psycopg (v3) explicite, quelle que soit la version de SQLAlchemy."""
+    for prefix in ("postgresql+asyncpg://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
+
+
+config.set_main_option("sqlalchemy.url", _sync_database_url(get_settings().database_url))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
