@@ -1,4 +1,4 @@
-.PHONY: run test lint format collect-once db-up db-down
+.PHONY: run test lint format collect-once db-up db-down migrate
 
 run:
 	uvicorn immo_ne_collector.main:app --reload
@@ -21,3 +21,6 @@ db-up:
 
 db-down:
 	docker compose down
+
+migrate:
+	alembic upgrade head
