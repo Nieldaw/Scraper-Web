@@ -97,6 +97,16 @@ Sous macOS ou Linux : même principe avec Docker Desktop (ou Docker Engine), pui
 Grille de cartes : photo (ou visuel de remplacement si l'annonce n'a pas d'image exploitable), pastille de
 statut, prix, titre, localité, pièces, surface et source.
 
+**Fiabilité du prix** — une petite pastille à côté du prix indique d'où il vient :
+
+- **✓ vérifié** : le prix a été lu sur la fiche de l'annonce ;
+- **≈ estimé** : prix de la page de résultats, non confirmé sur la fiche (la source peut l'afficher faux, voir
+  « Qualité des données ») ;
+- *aucune pastille* : on ne sait pas (autre source, ou donnée collectée avant ce suivi). Ce n'est pas un
+  signe que le prix est faux.
+
+L'API expose le même champ : `price_status` (`verified`, `estimated` ou `null`).
+
 **Filtres** (la liste se met à jour toute seule, sans recharger la page) :
 
 - **Recherche** : texte dans le titre, la ville ou l'adresse.
@@ -158,7 +168,8 @@ Permet de lancer une collecte sans terminal.
 
 1. **Sources** : Anibis, Lookmove. Homegate et ImmoScout24 sont affichés mais grisés : ils sont désactivés
    (protection anti-bot ; leur HTML en cache peut seulement être analysé en ligne de commande).
-2. **Cantons** : un ou plusieurs parmi GE, VD, NE, JU, FR, VS.
+2. **Cantons** : un ou plusieurs parmi GE, VD, NE, JU, FR, VS. **Les six sont cochés par défaut** ; décochez
+   ceux dont vous n'avez pas besoin. Plus il y a de cantons, plus la collecte est longue.
 3. **Limites** (volontairement basses, par respect des sites) : pages par source et canton (1 à 5), nombre
    maximum d'annonces par source, et pour Anibis le nombre maximum de fiches de détail ouvertes.
 4. **Lancer la collecte** : la collecte démarre en arrière-plan et vous êtes redirigé vers *Collectes*.
@@ -187,7 +198,7 @@ dans cette version.
   la **fiche de chaque annonce** conservée (délai d'1 s entre deux requêtes, plafond configurable, cache
   réutilisé 24 h) pour lire le prix, les pièces, la surface habitable et l'adresse exacts. Sans cela
   (`--no-enrich-details`, plafond dépassé ou blocage), le bien est marqué `price_status = unverified_search_page`
-  dans ses données brutes et le prix ne doit pas être utilisé tel quel.
+  dans ses données brutes (pastille **≈ estimé** sur la carte) et le prix ne doit pas être utilisé tel quel.
 - Un prix aberrant peut venir **du vendeur** lui-même (par exemple une maison à 2 141 CHF) : ce n'est pas une
   erreur d'extraction. Le contrôle qualité (`quality_report`) signale les prix trop bas.
 - **Surface** : pour un terrain, la surface de la fiche est celle de la parcelle ; elle n'est pas enregistrée comme
