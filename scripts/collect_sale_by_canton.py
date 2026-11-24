@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.scrapers.anibis import AnibisCachedHtmlScraper, AnibisParseError
+from immo_ne_collector.scrapers.anibis_pagination import anibis_has_next_page, jittered_delay
 from immo_ne_collector.scrapers.homegate import HomegateCachedHtmlScraper, HomegateParseError
 from immo_ne_collector.scrapers.immoscout import ImmoscoutCachedHtmlScraper, ImmoscoutParseError
 from immo_ne_collector.scrapers.http_fetcher import (
@@ -274,8 +275,8 @@ async def _fetch_pages_for_source(
 
     if source == "anibis":
         cache_paths: list[Path] = []
-        page_urls = _build_anibis_page_urls(base_url, max_pages)
-        for index, page_url in enumerate(page_urls, start=1):
+        # Les pages sont suivies tant que le bouton « page suivante » est actif (plafond max_pages).
+        for index, page_url in enumerate(_build_anibis_page_urls(base_url, max_pages), start=1):
             result = await fetch_html_to_cache(
                 url=page_url,
                 cache_dir=cache_dir,
@@ -288,8 +289,12 @@ async def _fetch_pages_for_source(
             )
             cache_paths.append(result.file_path)
             fetched_pages += 1
-            if index < len(page_urls) and delay_seconds > 0:
-                await asyncio.sleep(delay_seconds)
+            html_text = result.file_path.read_text(encoding="utf-8", errors="replace")
+            if not anibis_has_next_page(html_text):
+                notes.append(f"[anibis] dernière page atteinte ({index}).")
+                break
+            if index < max_pages and delay_seconds > 0:
+                await asyncio.sleep(jittered_delay(delay_seconds))
         return cache_paths, fetched_pages, loaded_from_cache_pages, notes, "PASS", None, None
 
     if source in {"homegate", "immoscout"}:
