@@ -28,6 +28,7 @@ from immo_ne_collector.scrapers.http_fetcher import (
 )
 from immo_ne_collector.scrapers.lookmove import LookmoveCachedHtmlScraper, LookmoveParseError
 from immo_ne_collector.scrapers.safety import SafetyConfig
+from immo_ne_collector.services.anibis_enrichment import DEFAULT_MAX_DETAILS, enrich_anibis_batch
 from immo_ne_collector.services.anibis_filters import FilterStats, filter_collection_batch
 from immo_ne_collector.services.collection import collect_and_normalize
 from immo_ne_collector.services.exports import ExportFileResult, export_all_csv
@@ -164,7 +165,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Collecte multi-source vente par canton configuré (URLs de recherche contrôlées).",
     )
-    parser.add_argument("--canton", help="Canton cible (ex: NE).")
+    parser.add_argument("--canton", help="Canton cible (ex: NE) ou liste séparée par des virgules (NE,VD).")
     parser.add_argument(
         "--all-romandie",
         action="store_true",
@@ -202,6 +203,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-export", action="store_true", help="Ne pas générer les exports CSV.")
     parser.add_argument("--timeout", type=float, default=None, help="Timeout HTTP fetch en secondes.")
     parser.add_argument("--retries", type=int, default=None, help="Nombre de retries HTTP fetch.")
+    parser.add_argument(
+        "--no-enrich-details",
+        dest="enrich_details",
+        action="store_false",
+        help="Anibis : ne pas ouvrir les fiches de détail (prix/pièces/surface NON vérifiés).",
+    )
+    parser.add_argument(
+        "--max-details",
+        type=int,
+        default=DEFAULT_MAX_DETAILS,
+        help=f"Anibis : nombre max de fiches de détail ouvertes par source (défaut: {DEFAULT_MAX_DETAILS}).",
+    )
+    parser.set_defaults(enrich_details=True)
     return parser
 
 
@@ -220,6 +234,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--delay-seconds must be >= 0")
     if args.cache_max_age_hours < 1:
         raise ValueError("--cache-max-age-hours must be >= 1")
+    if getattr(args, "max_details", 1) < 1:
+        raise ValueError("--max-details must be >= 1")
 
     if args.list_config:
         return
@@ -457,6 +473,8 @@ async def _collect_source(
     delay_seconds: float,
     use_cache: bool,
     cache_max_age_hours: int,
+    enrich_details: bool = False,
+    max_details: int | None = DEFAULT_MAX_DETAILS,
 ) -> SourceSummary:
     cache_paths, fetched_pages, loaded_from_cache_pages, notes, source_status, stopped_at_page, stopped_reason = await _fetch_pages_for_source(
         source=source,
@@ -521,6 +539,25 @@ async def _collect_source(
             transaction_type="sale",
             canton=canton,
         )
+        if source == "anibis" and enrich_details:
+            # La page de résultats Anibis donne des prix/pièces faux : on lit la fiche de détail.
+            filtered_batch, enrichment = await enrich_anibis_batch(
+                filtered_batch,
+                max_details=max_details,
+                delay_seconds=delay_seconds,
+                timeout=timeout,
+                retries=retries,
+                cache_max_age_hours=cache_max_age_hours,
+            )
+            notes.append(
+                f"Fiches de détail Anibis : {enrichment.enriched}/{enrichment.attempted} lues "
+                f"({enrichment.from_cache} depuis le cache, {enrichment.failed} en échec)."
+            )
+            notes.extend(f"WARNING: {warning}" for warning in enrichment.warnings)
+        elif source == "anibis":
+            notes.append(
+                "WARNING: fiches de détail désactivées : prix/pièces/surface Anibis non vérifiés."
+            )
         persistence_result = await persist_collection_batch(filtered_batch)
 
         parsed_pages += 1
@@ -770,6 +807,8 @@ async def _run_canton(
                     delay_seconds=args.delay_seconds,
                     use_cache=args.use_cache,
                     cache_max_age_hours=args.cache_max_age_hours,
+                    enrich_details=getattr(args, "enrich_details", False),
+                    max_details=getattr(args, "max_details", DEFAULT_MAX_DETAILS),
                 )
                 summaries.append(summary)
                 if remaining_for_source is not None:
@@ -928,12 +967,18 @@ def _resolve_cantons(args: argparse.Namespace) -> list[str]:
     if args.all_romandie:
         return list(ROMANDY_CANTONS)
     if args.canton:
-        normalized = normalize_canton(args.canton)
-        if normalized not in ROMANDY_CANTONS:
-            raise ValueError(
-                f"Unsupported canton '{normalized}'. Supported: {', '.join(ROMANDY_CANTONS)}"
-            )
-        return [normalized]
+        resolved: list[str] = []
+        for part in args.canton.split(","):
+            if not part.strip():
+                continue
+            normalized = normalize_canton(part)
+            if normalized not in ROMANDY_CANTONS:
+                raise ValueError(
+                    f"Unsupported canton '{normalized}'. Supported: {', '.join(ROMANDY_CANTONS)}"
+                )
+            if normalized not in resolved:
+                resolved.append(normalized)
+        return resolved
     return []
 
 
