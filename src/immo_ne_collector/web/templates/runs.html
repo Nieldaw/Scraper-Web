@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Collectes – Immo Collector{% endblock %}
+{% block content %}
+<header class="page-head split">
+  <div>
+    <h1>Collectes</h1>
+    <p class="muted">Historique des exécutions, avec le détail des avertissements et erreurs par source.</p>
+  </div>
+  <a class="btn" href="/settings">{{ icon("plus") }}Nouvelle collecte</a>
+</header>
+
+{% if launched %}
+<div class="notice notice-success" role="status">Collecte lancée en arrière-plan. Cette page se met à jour toute seule pendant l'exécution.</div>
+{% endif %}
+
+<div id="runs-list" {% if is_running %}hx-get="/runs" hx-trigger="every 4s" hx-select="#runs-list" hx-swap="outerHTML"{% endif %}>
+{% for r in rows %}
+  {% set run = r.run %}
+  <details class="run" {{ "open" if loop.first or run.status in ("FAILED", "PARTIAL") and loop.index <= 3 }}>
+    <summary>
+      <span class="status status-{{ run.status | lower }}">{{ {"SUCCESS":"Réussie","WARNING":"Avertissements","PARTIAL":"Partielle","FAILED":"Échec","RUNNING":"En cours…"}.get(run.status, run.status) }}</span>
+      <span class="run-when">{{ run.started_at.strftime("%d.%m.%Y %H:%M") }}</span>
+      <span class="muted">{% if r.stats.cantons %}{{ r.stats.cantons | join(", ") }} · {{ r.stats.sources | join(", ") }}{% endif %}</span>
+      <span class="run-counts muted">
+        {% if r.stats.collected is defined %}{{ r.stats.collected }} collectées · {{ r.stats.created }} nouvelles · {{ r.stats.updated }} mises à jour{% endif %}
+        {% if r.duration %} · {{ r.duration }}{% endif %}
+      </span>
+      {% if r.errors %}<span class="count count-error">{{ r.errors }} erreur{{ "s" if r.errors > 1 }}</span>{% endif %}
+      {% if r.warnings %}<span class="count count-warning">{{ r.warnings }} avertissement{{ "s" if r.warnings > 1 }}</span>{% endif %}
+    </summary>
+
+    <div class="run-body">
+      {% if run.error %}
+      <div class="notice notice-error"><strong>La collecte a échoué.</strong><pre>{{ run.error }}</pre></div>
+      {% endif %}
+
+      {% if r.stats.details %}
+        {% for d in r.stats.details %}
+        <section class="src src-{{ d.status | lower }}">
+          <h3>{{ source_labels.get(d.source, d.source) }} · {{ d.canton }}
+            <span class="status status-{{ d.status | lower }}">{{ {"PASS":"OK","WARNING":"Avertissement","FAIL":"Échec"}.get(d.status, d.status) }}</span></h3>
+          <p class="muted small">
+            pages {{ d.pages_fetched }}/{{ d.pages_requested }} (cache : {{ d.pages_from_cache }}) ·
+            {{ d.detected }} détectées · {{ d.kept }} dans le canton · {{ d.collected }} collectées
+            ({{ d.created }} nouvelles, {{ d.updated }} mises à jour, {{ d.unchanged }} inchangées)
+          </p>
+          {% for issue in d.issues %}
+          <div class="issue issue-{{ issue.level }}">
+            <strong>{{ "Erreur" if issue.level == "error" else "Avertissement" }} :</strong> {{ issue.message }}
+            {% if issue.hint %}<div class="hint">→ {{ issue.hint }}</div>{% endif %}
+          </div>
+          {% endfor %}
+          {% if d.notes %}
+          <details class="notes"><summary>Détails techniques ({{ d.notes | length }})</summary>
+            <ul>{% for n in d.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+          </details>
+          {% endif %}
+        </section>
+        {% endfor %}
+      {% elif r.stats.errors %}
+        <div class="notice notice-warning"><strong>Détails limités</strong> (collecte antérieure au suivi détaillé) :
+          <ul>{% for e in r.stats.errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+      {% elif run.status == "RUNNING" %}
+        <p class="muted">Collecte en cours — les résultats apparaîtront ici à la fin.</p>
+      {% elif not run.error %}
+        <p class="muted">Aucun détail enregistré pour cette collecte.</p>
+      {% endif %}
+    </div>
+  </details>
+{% else %}
+  <p class="empty">Aucune collecte pour l'instant. <a href="/settings">Lancez-en une.</a></p>
+{% endfor %}
+</div>
+{% endblock %}

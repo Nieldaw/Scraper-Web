@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Configuration – Immo Collector{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Configuration de la collecte</h1>
+  <p class="muted">Choisissez les sources et les cantons, puis lancez une collecte en arrière-plan.</p>
+</header>
+
+{% if running %}
+<div class="notice notice-warning" role="status">
+  Une collecte est déjà en cours. <a href="/runs">Suivre son avancement</a>. Le lancement est désactivé tant qu'elle n'est pas terminée.
+</div>
+{% endif %}
+{% if error %}
+<div class="notice notice-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<form method="post" action="/settings" class="form settings">
+  <fieldset>
+    <legend>Sources</legend>
+    {% for key, label in enabled_sources.items() %}
+    <label class="check"><input type="checkbox" name="sources" value="{{ key }}" {{ "checked" if key in values.sources }}> {{ label }}</label>
+    {% endfor %}
+    {% for key, label in disabled_sources.items() %}
+    <label class="check is-disabled"><input type="checkbox" disabled> {{ label }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Cantons</legend>
+    <div class="check-row">
+      {% for c in cantons %}
+      <label class="check"><input type="checkbox" name="cantons" value="{{ c }}" {{ "checked" if c in values.cantons }}> {{ c }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Limites (pour rester raisonnable envers les sites)</legend>
+    <div class="row">
+      <label>Pages par source et canton (1–{{ limits.pages }})
+        <input type="number" name="max_pages" min="1" max="{{ limits.pages }}" value="{{ values.max_pages }}"></label>
+      <label>Annonces max par source (vide = toutes)
+        <input type="number" name="max_listings" min="1" max="{{ limits.listings }}" value="{{ values.max_listings }}"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="enrich_details" {{ "checked" if values.enrich_details }}>
+      Anibis : ouvrir la fiche de chaque annonce (prix, pièces et surface exacts — plus lent, une requête par annonce)</label>
+    <label>Fiches Anibis max (1–{{ limits.details }})
+      <input type="number" name="max_details" min="1" max="{{ limits.details }}" value="{{ values.max_details }}"></label>
+    <p class="muted small">Sans les fiches, les prix Anibis de la page de résultats sont inexacts : ils sont alors marqués « non vérifiés ».</p>
+  </fieldset>
+
+  <button type="submit" {{ "disabled" if running }}>{{ icon("clock") }}Lancer la collecte</button>
+</form>
+{% endblock %}

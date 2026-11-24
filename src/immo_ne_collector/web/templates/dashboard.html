@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord – Immo Collector{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Tableau de bord</h1>
+  <p class="muted">Vue d'ensemble de la collecte.</p>
+</header>
+<section class="stats">
+  <a class="stat" href="/properties"><span class="stat-n">{{ stats.total }}</span><span>Total</span></a>
+  <a class="stat" href="/properties?status=new"><span class="stat-n">{{ stats.new }}</span><span>Nouveaux</span></a>
+  <a class="stat" href="/properties?status=modified"><span class="stat-n">{{ stats.modified }}</span><span>Modifiés</span></a>
+  <a class="stat" href="/properties?status=inactive"><span class="stat-n">{{ stats.inactive }}</span><span>Inactifs</span></a>
+</section>
+<section>
+  <h2>Dernière collecte</h2>
+  {% if last_run %}
+  <p><span class="status status-{{ last_run.status | lower }}">{{ {"SUCCESS":"Réussie","WARNING":"Avertissements","PARTIAL":"Partielle","FAILED":"Échec","RUNNING":"En cours…"}.get(last_run.status, last_run.status) }}</span>
+    le {{ last_run.started_at.strftime("%d.%m.%Y %H:%M") }}
+    — <a href="/runs">voir le détail</a></p>
+  {% if last_run.error %}<div class="notice notice-error"><pre>{{ last_run.error }}</pre></div>{% endif %}
+  {% else %}
+  <p class="muted">Aucune collecte enregistrée.</p>
+  {% endif %}
+</section>
+<section>
+  <h2>Derniers nouveaux biens</h2>
+  {% if recent %}
+  <div class="grid">{% for p in recent %}{% include "_card.html" %}{% endfor %}</div>
+  {% else %}
+  <p class="empty">Aucun nouveau bien.</p>
+  {% endif %}
+</section>
+{% endblock %}

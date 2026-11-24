@@ -1,0 +1,21 @@
+{% from "_icons.html" import icon %}
+<a class="card" href="/properties/{{ p.id }}">
+  <div class="card-img">
+    {% if p.image_url %}
+      <img src="{{ p.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'placeholder',textContent:'Photo indisponible'}))">
+    {% else %}
+      <div class="placeholder">{{ icon("image") }}<span>Pas de photo</span></div>
+    {% endif %}
+    <span class="chip chip-{{ p.status_label }}">{{ {"new":"Nouveau","modified":"Modifié","inactive":"Inactif","active":"Actif"}.get(p.status_label, p.status_label) }}</span>
+  </div>
+  <div class="card-body">
+    <div class="price">{% if p.price_chf is not none %}CHF {{ "{:,.0f}".format(p.price_chf).replace(",", "'") }}{% else %}Prix non communiqué{% endif %}</div>
+    <h3>{{ p.title or "Sans titre" }}</h3>
+    <p class="loc">{{ [p.postal_code, p.city] | select | join(" ") or "Lieu inconnu" }}</p>
+    <div class="metrics">
+      <span>{{ icon("bed") }}{% if p.rooms is not none %}{{ p.rooms | round(1) }} pièces{% else %}– pièces{% endif %}</span>
+      <span>{{ icon("expand") }}{% if p.living_area_m2 is not none %}{{ p.living_area_m2 | round(0) | int }} m²{% else %}– m²{% endif %}</span>
+      <span>{{ icon("link") }}{{ p.sources | join(", ") or "–" }}</span>
+    </div>
+  </div>
+</a>

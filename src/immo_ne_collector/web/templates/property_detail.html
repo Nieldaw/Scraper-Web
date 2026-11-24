@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title or "Bien" }} – Immo Collector{% endblock %}
+{% block content %}
+<p><a href="/properties">← Propriétés</a></p>
+<header class="page-head">
+  <h1>{{ item.title or "Sans titre" }}</h1>
+  <p class="muted">{{ item.address_full or [item.postal_code, item.city] | select | join(" ") or "Adresse inconnue" }}</p>
+</header>
+<div class="detail">
+  <div class="card-img detail-img">
+    {% if item.image_url %}<img src="{{ item.image_url }}" alt="" referrerpolicy="no-referrer">{% else %}<div class="placeholder">Pas de photo</div>{% endif %}
+  </div>
+  <dl>
+    <dt>Statut</dt><dd><span class="chip chip-{{ item.status_label }} chip-inline">{{ item.status_label }}</span></dd>
+    <dt>Prix</dt><dd>{% if item.price_chf is not none %}CHF {{ "{:,.0f}".format(item.price_chf).replace(",", "'") }}{% else %}–{% endif %}</dd>
+    <dt>Pièces</dt><dd>{{ item.rooms if item.rooms is not none else "–" }}</dd>
+    <dt>Surface</dt><dd>{{ item.living_area_m2 if item.living_area_m2 is not none else "–" }} m²</dd>
+    <dt>Type</dt><dd>{{ item.property_type or "–" }}</dd>
+    <dt>Vu pour la 1<sup>re</sup> fois</dt><dd>{{ item.first_seen_at.strftime("%d.%m.%Y") }}</dd>
+    <dt>Dernière vue</dt><dd>{{ item.last_seen_at.strftime("%d.%m.%Y") }}</dd>
+    <dt>SITN</dt><dd>{{ item.sitn_status or "–" }}{% if sitn_url %} — <a href="{{ sitn_url }}" rel="noopener noreferrer">lien</a>{% endif %}</dd>
+  </dl>
+</div>
+<h2>Annonces sources</h2>
+<table>
+  <thead><tr><th>Source</th><th>Prix</th><th>Dernière vue</th><th>Lien</th></tr></thead>
+  <tbody>
+  {% for l in listings %}
+    <tr>
+      <td>{{ l.source }}</td>
+      <td>{% if l.price_chf is not none %}CHF {{ "{:,.0f}".format(l.price_chf).replace(",", "'") }}{% else %}–{% endif %}</td>
+      <td>{{ l.last_seen_at.strftime("%d.%m.%Y") }}</td>
+      <td><a href="{{ l.url }}" rel="noopener noreferrer" target="_blank">Ouvrir</a></td>
+    </tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">Aucune annonce liée.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

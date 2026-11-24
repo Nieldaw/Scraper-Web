@@ -1,0 +1,46 @@
+{% from "_icons.html" import icon %}
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Immo Collector{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+</head>
+<body>
+  <input type="checkbox" id="nav-toggle" class="nav-toggle" hidden>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/"><span class="brand-mark">{{ icon("building") }}</span>Immo<span class="brand-sub">Collector</span></a>
+      <nav>
+        <p class="nav-title">Menu</p>
+        <a href="/" class="{{ 'active' if active == 'dashboard' }}">{{ icon("home") }}Tableau de bord</a>
+        <a href="/properties" class="{{ 'active' if active == 'properties' }}">{{ icon("building") }}Propriétés</a>
+        <a href="/mandates" class="{{ 'active' if active == 'mandates' }}">{{ icon("target") }}Mandats</a>
+        <a href="/runs" class="{{ 'active' if active == 'runs' }}">{{ icon("clock") }}Collectes</a>
+        <a href="/settings" class="{{ 'active' if active == 'settings' }}">{{ icon("cog") }}Configuration</a>
+        <a href="/analysis" class="{{ 'active' if active == 'analysis' }}">{{ icon("chart") }}Analysis</a>
+        <a href="/chat" class="{{ 'active' if active == 'chat' }}">{{ icon("chat") }}Chat</a>
+        <a href="/account" class="{{ 'active' if active == 'account' }}">{{ icon("user") }}User &amp; Account</a>
+      </nav>
+      <div class="sidebar-foot">
+        <span class="avatar">IC</span>
+        <span><strong>Collecteur</strong><small>Romandie · vente</small></span>
+      </div>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <label for="nav-toggle" class="icon-btn menu-btn" aria-label="Menu">{{ icon("menu") }}</label>
+        <form class="topsearch" action="/properties" method="get" role="search">
+          {{ icon("search") }}
+          <input type="search" name="q" placeholder="Rechercher un bien, une ville…" aria-label="Rechercher">
+        </form>
+      </header>
+      <main class="content">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

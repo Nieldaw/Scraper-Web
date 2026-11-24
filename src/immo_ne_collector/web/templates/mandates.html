@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Mandats – Immo Collector{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Mandats</h1>
+  <p class="muted">Recherches enregistrées pour le prospecteur.</p>
+</header>
+<div class="two-col">
+  <section>
+    <h2>Nouveau mandat</h2>
+    <form method="post" action="/mandates" class="form">
+      <label>Nom <input name="name" required></label>
+      <label>Villes (séparées par des virgules) <input name="cities"></label>
+      <label>Types de bien <input name="property_types" placeholder="apartment, house"></label>
+      <div class="row"><label>Prix min <input name="min_price_chf" type="number"></label><label>Prix max <input name="max_price_chf" type="number"></label></div>
+      <div class="row"><label>Pièces min <input name="min_rooms" type="number" step="0.5"></label><label>Pièces max <input name="max_rooms" type="number" step="0.5"></label></div>
+      <div class="row"><label>Surface min (m²) <input name="min_living_area_m2" type="number"></label><label>Surface max (m²) <input name="max_living_area_m2" type="number"></label></div>
+      <label class="check"><input type="checkbox" name="only_active" checked> Biens actifs uniquement</label>
+      <button type="submit">Créer le mandat</button>
+    </form>
+  </section>
+  <section>
+    <h2>Mandats existants</h2>
+    {% for m in mandates %}
+    <p><a href="/mandates?selected={{ m.id }}" class="{{ 'active' if selected and selected.id == m.id }}">{{ m.name }}</a>
+      <span class="muted">{{ m.cities | join(", ") or "toutes villes" }}</span></p>
+    {% else %}
+    <p class="muted">Aucun mandat.</p>
+    {% endfor %}
+  </section>
+</div>
+{% if selected %}
+<section>
+  <h2>Résultats : {{ selected.name }} <span class="muted">({{ matches_total }} bien{{ "s" if matches_total != 1 }})</span></h2>
+  {% if matches %}
+  <div class="grid">{% for p in matches %}{% include "_card.html" %}{% endfor %}</div>
+  {% else %}
+  <p class="empty">Aucun bien ne correspond à ce mandat.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

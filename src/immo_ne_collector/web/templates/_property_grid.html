@@ -1,0 +1,17 @@
+<div id="results">
+  <p class="muted">{{ total }} bien{{ "s" if total != 1 }}</p>
+  {% if items %}
+  <div class="grid">
+    {% for p in items %}{% include "_card.html" %}{% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">Aucun bien ne correspond à ces critères.</p>
+  {% endif %}
+  {% if pages > 1 %}
+  <nav class="pager">
+    {% if page > 1 %}<a href="/properties?{{ qs }}&page={{ page - 1 }}" hx-get="/properties?{{ qs }}&page={{ page - 1 }}" hx-target="#results" hx-swap="outerHTML">← Précédent</a>{% endif %}
+    <span>Page {{ page }} / {{ pages }}</span>
+    {% if page < pages %}<a href="/properties?{{ qs }}&page={{ page + 1 }}" hx-get="/properties?{{ qs }}&page={{ page + 1 }}" hx-target="#results" hx-swap="outerHTML">Suivant →</a>{% endif %}
+  </nav>
+  {% endif %}
+</div>
