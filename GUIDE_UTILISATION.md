@@ -17,6 +17,74 @@ elle ouvre la page *Propriétés* filtrée sur le texte saisi.
 
 ---
 
+## Installation pour un utilisateur (Windows)
+
+Aucune connaissance technique n'est nécessaire. Il faut un PC Windows 10 ou 11 (64 bits), une connexion
+internet pour la première installation, et environ 3 Go d'espace disque.
+
+### 1. Installer Docker Desktop (une seule fois)
+
+1. Ouvrez <https://www.docker.com/products/docker-desktop/> et cliquez sur **Download for Windows**.
+2. Double-cliquez sur le fichier téléchargé (`Docker Desktop Installer.exe`) et laissez les options par défaut
+   (gardez cochée l'option **WSL 2**). Acceptez la demande d'autorisation de Windows.
+3. Redémarrez le PC si l'installateur le demande.
+4. Lancez **Docker Desktop** depuis le menu Démarrer. Acceptez les conditions d'utilisation ; vous pouvez
+   ignorer la création de compte (« Skip » ou « Continue without signing in »).
+5. Attendez que l'icône de baleine en bas à droite de l'écran cesse de bouger et que Docker indique
+   **Engine running** (en bas à gauche de la fenêtre). Cela peut prendre une à deux minutes.
+
+### 2. Récupérer l'application
+
+1. Enregistrez le fichier **`immo-collector.zip`** que l'on vous a envoyé, par exemple sur le Bureau.
+2. Clic droit dessus → **Extraire tout…** → choisissez un dossier simple, par exemple `C:\immo-collector`
+   (évitez les dossiers synchronisés OneDrive).
+
+### 3. Lancer l'application
+
+1. Vérifiez que **Docker Desktop est lancé** (étape 1.5).
+2. Dans le dossier extrait, **double-cliquez sur `demarrer.bat`**.
+   - Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur **Informations complémentaires**,
+     puis **Exécuter quand même**. Le fichier est un simple script texte que vous pouvez ouvrir avec le
+     Bloc-notes pour vérifier.
+3. Une fenêtre noire s'ouvre et affiche l'avancement. **La première fois, comptez 5 à 10 minutes** (téléchargement
+   et préparation) ; les fois suivantes, quelques secondes. Ne la fermez pas avant le message
+   « L'application est prête ».
+4. Votre navigateur s'ouvre tout seul sur **<http://localhost:8000>**. Une visite guidée s'affiche au premier
+   lancement.
+
+### 4. Récupérer les premières annonces
+
+L'application démarre **vide**. Allez dans l'onglet **Configuration**, laissez *Anibis* et *NE* cochés, puis cliquez
+sur **Lancer la collecte**. Le suivi se fait dans l'onglet **Collectes** ; les biens apparaissent dans **Propriétés**
+au bout d'une à deux minutes.
+
+### 5. Arrêter et relancer
+
+- **Arrêter** : double-cliquez sur **`arreter.bat`**. Vos données sont conservées.
+- **Relancer** : double-cliquez à nouveau sur `demarrer.bat` (Docker Desktop doit être lancé).
+- Fermer simplement le navigateur n'arrête pas l'application ; elle redémarre aussi avec Docker Desktop.
+- **Tout effacer** (base de données comprise) : dans le dossier, ouvrez une invite de commandes et tapez
+  `docker compose -f docker-compose.app.yml down -v`.
+
+Les fichiers CSV exportés et le cache se trouvent dans le dossier **`data`**, à côté de `demarrer.bat`.
+
+### Problèmes fréquents
+
+| Message ou symptôme | Que faire |
+|---|---|
+| « Docker Desktop n'est pas lancé » | Ouvrez Docker Desktop, attendez « Engine running », relancez `demarrer.bat` |
+| « Docker Desktop n'est pas installé » | Refaites l'étape 1 |
+| Docker demande d'activer la virtualisation ou WSL | Redémarrez le PC ; sinon activez la *virtualisation* dans le BIOS (voir l'aide de Docker Desktop) |
+| « port is already allocated » / port 8000 déjà utilisé | Un autre programme utilise le port 8000 ; fermez-le puis relancez |
+| La page ne s'ouvre pas | Attendez 30 secondes puis actualisez ; sinon tapez `docker compose -f docker-compose.app.yml logs app` |
+| *Lookmove a refusé l'accès (HTTP 403)* dans Collectes | Normal : ce site bloque parfois les programmes automatiques. Les autres sources continuent de fonctionner |
+
+Sous macOS ou Linux : même principe avec Docker Desktop (ou Docker Engine), puis `./start.sh` dans le dossier.
+
+*Pour le développeur : `make package` fabrique `dist/immo-collector.zip` (voir `scripts/build_package.py`).*
+
+---
+
 ## Tableau de bord (`/`)
 
 - **Compteurs** : total des biens, *Nouveaux*, *Modifiés*, *Inactifs*. Cliquer sur un compteur ouvre la
