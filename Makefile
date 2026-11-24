@@ -1,4 +1,4 @@
-.PHONY: run test lint format collect-once db-up db-down migrate
+.PHONY: run test lint format collect-once db-up db-down migrate package
 
 run:
 	uvicorn immo_ne_collector.main:app --reload
@@ -24,3 +24,6 @@ db-down:
 
 migrate:
 	alembic upgrade head
+
+package:
+	python scripts/build_package.py

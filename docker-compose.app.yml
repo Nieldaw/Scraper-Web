@@ -1,0 +1,44 @@
+# Application complète pour un utilisateur final : base PostgreSQL + interface web.
+#   docker compose -f docker-compose.app.yml up -d --build      (ou demarrer.bat / start.sh)
+#   docker compose -f docker-compose.app.yml down                (arrêter, données conservées)
+#   docker compose -f docker-compose.app.yml down -v             (arrêter ET effacer la base)
+name: immo-collector
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: immo_ne
+      POSTGRES_USER: immo
+      POSTGRES_PASSWORD: immo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Aucun port publié : la base n'est joignable que depuis l'application (pas de conflit
+    # avec un PostgreSQL déjà installé sur le PC, et rien n'est exposé sur le réseau).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U immo -d immo_ne"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://immo:immo@db:5432/immo_ne
+      ENVIRONMENT: docker
+    ports:
+      # Accessible depuis ce PC uniquement (127.0.0.1), pas depuis le réseau local.
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # Exports CSV, cache HTML et journaux : visibles dans le dossier « data » à côté du projet.
+      - ./data:/app/data
+
+volumes:
+  pgdata:
