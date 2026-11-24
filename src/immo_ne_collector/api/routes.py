@@ -25,11 +25,13 @@ from immo_ne_collector.services.mandates import (
 )
 from immo_ne_collector.services.property_queries import (
     MAX_PAGE_SIZE,
+    PRICE_STATUS_LABELS,
     SORTS,
     PropertyFilters,
     count_by_status,
     extract_image_url,
     get_property,
+    price_status_of,
     search_properties,
     status_label,
 )
@@ -55,6 +57,8 @@ def property_to_out(row: Property) -> PropertyOut:
         status=row.status,
         status_label=status_label(row.status),
         image_url=extract_image_url(row.raw_data),
+        price_status=price_status_of(row.raw_data),
+        price_status_label=PRICE_STATUS_LABELS.get(price_status_of(row.raw_data) or ""),
         first_seen_at=row.first_seen_at,
         last_seen_at=row.last_seen_at,
         last_changed_at=row.last_changed_at,

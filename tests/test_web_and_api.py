@@ -199,3 +199,42 @@ async def test_guided_tour_hooks_are_present(client):
     assert page.index("driver.css") < page.index("style.css")  # notre thème doit l'emporter
     script = await client.get("/static/tour.js")
     assert script.status_code == 200 and "onDestroyStarted" in script.text
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"price_status": "detail_page"}, "verified"),
+        ({"price_status": "unverified_search_page"}, "estimated"),
+        ({"price_status": "no_price_on_detail"}, None),
+        ({}, None),
+        (None, None),
+    ],
+)
+def test_price_status_mapping(raw, expected):
+    from immo_ne_collector.services.property_queries import price_status_of
+
+    assert price_status_of(raw) == expected
+
+
+@pytest.mark.db
+async def test_price_status_visible_in_api_and_cards(client):
+    await _add(title="Fiche lue", raw_data={"price_status": "detail_page"})
+    await _add(title="Prix de liste", raw_data={"price_status": "unverified_search_page"})
+    await _add(title="Autre source", raw_data={})
+    items = {i["title"]: i for i in (await client.get("/api/properties")).json()["items"]}
+    assert items["Fiche lue"]["price_status"] == "verified"
+    assert items["Fiche lue"]["price_status_label"] == "Prix vérifié"
+    assert items["Prix de liste"]["price_status"] == "estimated"
+    assert items["Autre source"]["price_status"] is None
+    page = (await client.get("/properties")).text
+    assert (
+        page.count("pstat-verified") == 1 and page.count("pstat-estimated") == 1
+    )  # pas de badge sans info
+
+
+@pytest.mark.db
+async def test_settings_default_to_all_romandie_cantons(client):
+    page = (await client.get("/settings")).text
+    for canton in ("GE", "VD", "NE", "JU", "FR", "VS"):
+        assert f'value="{canton}" checked' in page, canton

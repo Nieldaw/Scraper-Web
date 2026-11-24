@@ -1,6 +1,8 @@
 """Requêtes de lecture sur les biens, partagées par l'API JSON et les pages HTML."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
@@ -27,6 +29,29 @@ SORTS = ("recent", "price_asc", "price_desc")
 MAX_PAGE_SIZE = 100
 
 __all__ = ["extract_image_url"]
+
+# raw_data["price_status"] (posé à la collecte) -> fiabilité affichée du prix.
+PRICE_STATUS_LABELS: dict[str, str] = {
+    "verified": "Prix vérifié",
+    "estimated": "Prix estimé",
+}
+
+
+def price_status_of(raw_data: Mapping[str, Any] | None) -> str | None:
+    """« verified » : lu sur la fiche de l'annonce ; « estimated » : page de résultats, non vérifié.
+
+    None quand on ne sait pas (autres sources, ou données collectées avant ce suivi) : aucune
+    pastille n'est alors affichée plutôt que d'affirmer quelque chose d'inexact.
+    """
+    if not isinstance(raw_data, Mapping):
+        return None
+    raw = raw_data.get("price_status")
+    if raw == "detail_page":
+        return "verified"
+    if raw == "unverified_search_page":
+        return "estimated"
+    return None
+
 
 def status_label(status: str) -> str:
     return STATUS_LABELS.get(status, status.lower())

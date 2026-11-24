@@ -219,3 +219,8 @@ body .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: v
 body .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--panel-2); }
 body .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--panel-2); }
 body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--panel-2); }
+
+/* --- fiabilité du prix ---------------------------------------------------------------- */
+.pstat { display: inline-block; margin-left: .4rem; padding: .05rem .5rem; border-radius: 99px; font-size: .7rem; font-weight: 600; vertical-align: middle; border: 1px solid; }
+.pstat-verified { color: var(--accent); border-color: #3d5a0f; background: #151d08; }
+.pstat-estimated { color: #ffd166; border-color: #6b5410; background: #1d1807; }

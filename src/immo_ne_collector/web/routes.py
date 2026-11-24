@@ -291,7 +291,7 @@ def _settings_context(*, values: dict | None = None, error: str | None = None) -
         "values": values
         or {
             "sources": ["anibis"],
-            "cantons": ["NE"],
+            "cantons": list(ROMANDY_CANTONS),  # toute la Romandie par défaut
             "max_pages": "1",
             "max_listings": "10",
             "enrich_details": True,
