@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from immo_ne_collector.scrapers.base import BaseScraper, RawListing
+from immo_ne_collector.scrapers.image_utils import extract_card_image_url
 from immo_ne_collector.services.source_config import infer_detected_canton
 
 
@@ -104,6 +105,7 @@ class AnibisCachedHtmlScraper(BaseScraper):
                         "transaction_type": transaction_type,
                         "detected_canton": detected_canton,
                         "detected_canton_reason": detected_canton_reason,
+                        "image_url": extract_card_image_url(card, self.base_url),
                     },
                     fetched_at=fetched_at,
                 )

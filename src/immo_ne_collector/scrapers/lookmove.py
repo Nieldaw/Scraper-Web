@@ -7,6 +7,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from immo_ne_collector.scrapers.base import BaseScraper, RawListing
+from immo_ne_collector.scrapers.image_utils import extract_card_image_url
 from immo_ne_collector.scrapers.lookmove_utils import (
     classify_transaction_type,
     derive_stable_id_from_url,
@@ -17,6 +18,7 @@ from immo_ne_collector.scrapers.lookmove_utils import (
     infer_property_type_from_href,
     infer_title_from_href,
 )
+from immo_ne_collector.services.images import extract_image_url
 from immo_ne_collector.services.source_config import infer_detected_canton
 
 
@@ -116,6 +118,8 @@ class LookmoveCachedHtmlScraper(BaseScraper):
                         "transaction_type": transaction_type,
                         "detected_canton": detected_canton,
                         "detected_canton_reason": detected_canton_reason,
+                        "image_url": extract_card_image_url(card, self.base_url)
+                        or (extract_image_url(offer_data) if isinstance(offer_data, dict) else None),
                         "detected_title": title,
                         "detected_city": city,
                         "detected_postal_code": postal_code,
