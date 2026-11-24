@@ -24,6 +24,10 @@ internet pour la première installation, et environ 3 Go d'espace disque.
 
 ### 1. Installer Docker Desktop (une seule fois)
 
+> **Automatique :** `demarrer.bat` installe Docker Desktop via `winget` s'il est absent (acceptez la demande
+> d'autorisation de Windows, puis redémarrez le PC si on vous le demande et relancez `demarrer.bat`).
+> Les étapes manuelles ci-dessous ne servent que si l'installation automatique échoue.
+
 1. Ouvrez <https://www.docker.com/products/docker-desktop/> et cliquez sur **Download for Windows**.
 2. Double-cliquez sur le fichier téléchargé (`Docker Desktop Installer.exe`) et laissez les options par défaut
    (gardez cochée l'option **WSL 2**). Acceptez la demande d'autorisation de Windows.
@@ -73,7 +77,7 @@ Les fichiers CSV exportés et le cache se trouvent dans le dossier **`data`**, �
 | Message ou symptôme | Que faire |
 |---|---|
 | « Docker Desktop n'est pas lancé » | Ouvrez Docker Desktop, attendez « Engine running », relancez `demarrer.bat` |
-| « Docker Desktop n'est pas installé » | Refaites l'étape 1 |
+| « Docker Desktop n'est pas installé » | `demarrer.bat` l'installe seul ; sinon, étape 1 à la main |
 | Docker demande d'activer la virtualisation ou WSL | Redémarrez le PC ; sinon activez la *virtualisation* dans le BIOS (voir l'aide de Docker Desktop) |
 | « port is already allocated » / port 8000 déjà utilisé | Un autre programme utilise le port 8000 ; fermez-le puis relancez |
 | La page ne s'ouvre pas | Attendez 30 secondes puis actualisez ; sinon tapez `docker compose -f docker-compose.app.yml logs app` |

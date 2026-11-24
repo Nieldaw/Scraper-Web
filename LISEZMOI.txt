@@ -1,10 +1,10 @@
 IMMO COLLECTOR - Demarrage rapide (Windows)
 ===========================================
 
-1. Installez Docker Desktop (gratuit) : https://www.docker.com/products/docker-desktop/
-   Lancez-le et attendez qu'il affiche "Engine running".
-
-2. Double-cliquez sur  demarrer.bat
+1. Double-cliquez sur  demarrer.bat
+   Si Docker Desktop est absent, il s'installe tout seul (acceptez la demande de Windows).
+   Un redemarrage du PC peut etre demande : relancez alors demarrer.bat.
+   (Installation manuelle possible : https://www.docker.com/products/docker-desktop/)
    (la premiere fois : 5 a 10 minutes, il faut une connexion internet).
 
 3. Votre navigateur s'ouvre sur  http://localhost:8000
