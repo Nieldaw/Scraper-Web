@@ -19,3 +19,10 @@ data/exports/**/*.csv
 !data/exports/.gitkeep
 playwright-report/
 test-results/
+
+data/logs/*.log
+
+# Artefacts de build / environnement local
+*.egg-info/
+*.bak
+.claude/

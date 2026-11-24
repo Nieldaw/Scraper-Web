@@ -1,0 +1,9 @@
+# Fins de ligne : texte normalisé en LF dans le dépôt ; scripts Windows en CRLF.
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
+*.png binary
+*.PNG binary
+*.jpg binary
+*.svg text
