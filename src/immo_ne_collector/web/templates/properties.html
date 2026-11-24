@@ -7,9 +7,9 @@
     <h1>Propriétés</h1>
     <p class="muted">Annonces de vente collectées et dédupliquées.</p>
   </div>
-  <a class="btn" href="/mandates">{{ icon("plus") }}Nouveau mandat</a>
+  <a class="btn" href="/mandates" data-tour="new-mandate">{{ icon("plus") }}Nouveau mandat</a>
 </header>
-<form class="filterbar" hx-get="/properties" hx-target="#results" hx-swap="outerHTML" hx-trigger="input changed delay:300ms from:input, change from:select, change from:.tabs, submit" hx-push-url="true">
+<form class="filterbar" data-tour="filters" hx-get="/properties" hx-target="#results" hx-swap="outerHTML" hx-trigger="input changed delay:300ms from:input, change from:select, change from:.tabs, submit" hx-push-url="true">
   <label class="searchbox">{{ icon("search") }}<input type="search" name="q" value="{{ filters.q }}" placeholder="Rechercher (titre, ville, adresse)…"></label>
   <div class="tabs" role="radiogroup" aria-label="Statut">
     {% for value, label in status_tabs %}

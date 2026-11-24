@@ -199,3 +199,23 @@ tr:last-child td { border-bottom: 0; }
 .check-row { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; }
 .is-disabled { opacity: .5; }
 button[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+
+/* --- visite guidée (Driver.js) : thème sombre -------------------------------------------- */
+.sidebar .tour-link { display: flex; align-items: center; gap: .65rem; padding: .5rem .75rem; margin-top: auto; border-radius: 9px; color: var(--muted); text-decoration: none; font-size: .85rem; }
+.sidebar .tour-link:hover { background: var(--panel-2); color: var(--text); }
+.sidebar .tour-link + .sidebar-foot { margin-top: 0; }
+/* `body` relève la spécificité : driver.css est chargé depuis unpkg et ne doit pas l'emporter. */
+body .driver-popover { background: var(--panel-2); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 12px 40px rgba(0,0,0,.6); max-width: 340px; font-family: inherit; }
+body .driver-popover-title { font-size: 1rem; font-weight: 600; color: var(--text); }
+body .driver-popover-description { color: #c4c7cb; font-size: .9rem; line-height: 1.5; }
+body .driver-popover-progress-text { color: var(--muted); }
+body .driver-popover-close-btn { color: var(--muted); border-radius: 6px; }
+body .driver-popover-close-btn:hover { color: var(--text); }
+body .driver-popover-close-btn:focus-visible { outline-offset: -2px; }
+body .driver-popover-footer button { background: var(--panel); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; text-shadow: none; padding: .4rem .8rem; font: inherit; font-size: .85rem; }
+body .driver-popover-footer button:hover { filter: none; border-color: var(--accent); }
+body .driver-popover-footer .driver-popover-next-btn { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+body .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: var(--panel-2); }
+body .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: var(--panel-2); }
+body .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: var(--panel-2); }
+body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: var(--panel-2); }

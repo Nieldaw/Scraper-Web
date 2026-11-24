@@ -180,3 +180,22 @@ async def test_mandate_creation_flow(client):
 async def test_mandate_matches_unknown_id(client):
     r = await client.get("/api/mandates/00000000-0000-0000-0000-000000000000/matches")
     assert r.status_code == 404
+
+
+@pytest.mark.db
+async def test_guided_tour_hooks_are_present(client):
+    """Les cibles du tour guidé (Driver.js) et le script doivent rester en place."""
+    page = (await client.get("/properties")).text
+    for hook in (
+        'data-tour="sidebar"',
+        'data-tour="search"',
+        'data-tour="filters"',
+        'data-tour="new-mandate"',
+        'data-tour="nav-properties"',
+        "/properties?tour=1",
+    ):
+        assert hook in page, hook
+    assert "driver.js@1.3.1/dist/driver.js.iife.js" in page  # version épinglée
+    assert page.index("driver.css") < page.index("style.css")  # notre thème doit l'emporter
+    script = await client.get("/static/tour.js")
+    assert script.status_code == 200 and "onDestroyStarted" in script.text
