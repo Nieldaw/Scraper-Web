@@ -238,3 +238,20 @@ async def test_settings_default_to_all_romandie_cantons(client):
     page = (await client.get("/settings")).text
     for canton in ("GE", "VD", "NE", "JU", "FR", "VS"):
         assert f'value="{canton}" checked' in page, canton
+
+
+@pytest.mark.db
+async def test_settings_page_has_html_upload_form():
+    from httpx import ASGITransport, AsyncClient
+
+    from immo_ne_collector.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        html = (await client.get("/settings")).text
+        assert "Uploader une page HTML" in html and 'enctype="multipart/form-data"' in html
+        bad = await client.post(
+            "/settings/import",
+            data={"source": "homegate", "canton": "all"},
+            files={"html_file": ("x.html", b"   ", "text/html")},
+        )
+        assert bad.status_code == 422 and "vide" in bad.text

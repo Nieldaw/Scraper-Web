@@ -53,4 +53,29 @@
 
   <button type="submit" {{ "disabled" if running }}>{{ icon("clock") }}Lancer la collecte</button>
 </form>
+
+<section class="settings" id="import-html">
+  <h2>Importer une page HTML</h2>
+  <p class="muted">Pour un site que la collecte automatique ne peut pas lire (Homegate, ImmoScout24…) :
+    ouvrez la page de résultats dans votre navigateur, affichez les annonces, enregistrez la page
+    (<kbd>Ctrl</kbd>+<kbd>S</kbd>) puis envoyez le fichier ici.</p>
+  {% if import_error %}<div class="notice notice-error" role="alert">{{ import_error }}</div>{% endif %}
+  {% if import_result %}
+  <div class="notice notice-success" role="status">
+    {{ import_result.detected }} annonce(s) détectée(s), {{ import_result.kept }} conservée(s) après filtre vente/canton :
+    {{ import_result.created }} nouvelle(s), {{ import_result.updated }} mise(s) à jour, {{ import_result.unchanged }} inchangée(s).
+    <a href="/properties">Voir les biens</a>
+  </div>
+  {% endif %}
+  <form method="post" action="/settings/import" enctype="multipart/form-data" class="form">
+    <div class="row">
+      <label>Source
+        <select name="source">{% for key, label in import_sources.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+      <label>Canton
+        <select name="canton"><option value="all">Toute la Romandie</option>{% for c in cantons %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select></label>
+    </div>
+    <label>Fichier HTML <input type="file" name="html_file" accept=".html,.htm,text/html" required></label>
+    <button type="submit">{{ icon("clock") }}Uploader une page HTML</button>
+  </form>
+</section>
 {% endblock %}

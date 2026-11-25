@@ -208,3 +208,9 @@ dans cette version.
 - **Surface** : pour un terrain, la surface de la fiche est celle de la parcelle ; elle n'est pas enregistrée comme
   surface habitable.
 - **Photos** : récupérées quand l'annonce en fournit une ; sinon un visuel de remplacement s'affiche.
+
+## Importer une page HTML enregistrée
+
+Pour un site que la collecte automatique ne peut pas lire (Homegate, ImmoScout24…) : ouvrez la page de
+résultats dans votre navigateur, enregistrez-la (`Ctrl+S`), puis dans **Configuration → Importer une page HTML**
+choisissez la source, le canton et le fichier. Seules les annonces de **vente** sont conservées.

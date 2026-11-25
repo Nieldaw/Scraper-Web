@@ -5,7 +5,7 @@ from typing import Annotated
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -15,6 +15,11 @@ from immo_ne_collector.api.routes import mandate_create_to_criteria, property_to
 from immo_ne_collector.db import get_session
 from immo_ne_collector.models import DailyRun, Property
 from immo_ne_collector.schemas import SearchMandateCreate
+from immo_ne_collector.services.html_import import (
+    IMPORT_SOURCES,
+    HtmlImportError,
+    import_html_page,
+)
 from immo_ne_collector.services.collection_jobs import (
     DISABLED_SOURCES,
     ENABLED_SOURCES,
@@ -298,6 +303,9 @@ def _settings_context(*, values: dict | None = None, error: str | None = None) -
             "max_details": "30",
         },
         "error": error,
+        "import_sources": IMPORT_SOURCES,
+        "import_result": None,
+        "import_error": None,
     }
 
 
@@ -341,6 +349,34 @@ async def settings_launch(request: Request, session: SessionDep):
         status_code=422,
         running=await running_collection(session) is not None,
         **_settings_context(values=values, error=error),
+    )
+
+
+@router.post("/settings/import")
+async def settings_import(
+    request: Request,
+    session: SessionDep,
+    html_file: Annotated[UploadFile, File()],
+    source: Annotated[str, Form()] = "homegate",
+    canton: Annotated[str, Form()] = "all",
+):
+    context = _settings_context()
+    status_code = 200
+    try:
+        content = await html_file.read()
+        context["import_result"] = await import_html_page(
+            source=source, canton=canton, content=content
+        )
+    except HtmlImportError as exc:
+        context["import_error"] = str(exc)
+        status_code = 422
+    return _render(
+        request,
+        "settings.html",
+        "settings",
+        status_code=status_code,
+        running=await running_collection(session) is not None,
+        **context,
     )
 
 
