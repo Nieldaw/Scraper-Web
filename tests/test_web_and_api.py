@@ -255,3 +255,20 @@ async def test_settings_page_has_html_upload_form():
             files={"html_file": ("x.html", b"   ", "text/html")},
         )
         assert bad.status_code == 422 and "vide" in bad.text
+
+
+def test_database_unavailable_handler_explains_docker_host():
+    import asyncio
+    from types import SimpleNamespace
+
+    from immo_ne_collector import main
+
+    request = SimpleNamespace(url=SimpleNamespace(path="/api/stats"))
+    original = main.settings.database_url
+    main.settings.database_url = "postgresql+asyncpg://u:p@db:5432/immo_ne"
+    try:
+        resp = asyncio.run(main.database_unavailable(request, OSError("Name or service not known")))
+    finally:
+        main.settings.database_url = original
+    assert resp.status_code == 503
+    assert b"localhost" in resp.body and b"u:p" not in resp.body
