@@ -251,3 +251,17 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 .btn-primary:hover { filter: brightness(1.08); }
 .card.is-processed { border-color: #3fa34d; box-shadow: 0 0 0 1px #3fa34d; }
 .badge-processed { display: inline-block; margin-left: .4rem; padding: .05rem .5rem; border-radius: 99px; font-size: .7rem; font-weight: 700; color: #7be08a; border: 1px solid #3fa34d; background: #0f2414; vertical-align: middle; }
+
+/* Infobulles : survol ou focus clavier sur tout élément [data-tip] non vide. */
+[data-tip]:not([data-tip=""]) { position: relative; }
+[data-tip]:not([data-tip=""])::after {
+  content: attr(data-tip); position: absolute; z-index: 50; left: 50%; bottom: calc(100% + 8px);
+  transform: translateX(-50%); width: max-content; max-width: 260px; padding: .45rem .65rem;
+  border-radius: 8px; background: #000; color: #f1f2ee; border: 1px solid var(--border-strong);
+  font-size: .78rem; font-weight: 400; line-height: 1.35; text-align: left; white-space: normal;
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+[data-tip]:not([data-tip=""]):hover::after,
+[data-tip]:not([data-tip=""]):focus-visible::after { opacity: 1; }
+
+.match-box { margin: .2rem 0 .6rem; padding: .55rem .8rem; border-radius: 9px; border: 1px dashed var(--border-strong); color: var(--accent); }

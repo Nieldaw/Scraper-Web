@@ -7,9 +7,9 @@
 </header>
 <section class="stats">
   <a class="stat" href="/properties"><span class="stat-n">{{ stats.total }}</span><span>Total</span></a>
-  <a class="stat" href="/properties?status=new"><span class="stat-n">{{ stats.new }}</span><span>Nouveaux</span></a>
-  <a class="stat" href="/properties?status=modified"><span class="stat-n">{{ stats.modified }}</span><span>Modifiés</span></a>
-  <a class="stat" href="/properties?status=inactive"><span class="stat-n">{{ stats.inactive }}</span><span>Inactifs</span></a>
+  <a class="stat" data-tip="{{ TIPS.new }}" href="/properties?status=new"><span class="stat-n">{{ stats.new }}</span><span>Nouveaux</span></a>
+  <a class="stat" data-tip="{{ TIPS.modified }}" href="/properties?status=modified"><span class="stat-n">{{ stats.modified }}</span><span>Modifiés</span></a>
+  <a class="stat" data-tip="{{ TIPS.inactive }}" href="/properties?status=inactive"><span class="stat-n">{{ stats.inactive }}</span><span>Plus disponible</span></a>
 </section>
 <section>
   <h2>Dernière collecte</h2>

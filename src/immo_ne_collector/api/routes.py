@@ -60,6 +60,8 @@ def property_to_out(row: Property) -> PropertyOut:
         price_status=price_status_of(row.raw_data),
         price_status_label=PRICE_STATUS_LABELS.get(price_status_of(row.raw_data) or ""),
         is_processed=bool(row.is_processed),
+        latitude=row.latitude,
+        longitude=row.longitude,
         first_seen_at=row.first_seen_at,
         last_seen_at=row.last_seen_at,
         last_changed_at=row.last_changed_at,

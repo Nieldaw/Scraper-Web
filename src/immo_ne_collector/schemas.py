@@ -63,6 +63,8 @@ class PropertyOut(BaseModel):
     image_url: str | None = None
     price_status: str | None = None  # "verified" (fiche) | "estimated" (page de résultats) | None
     is_processed: bool = False
+    latitude: float | None = None
+    longitude: float | None = None
     price_status_label: str | None = None
     first_seen_at: datetime
     last_seen_at: datetime

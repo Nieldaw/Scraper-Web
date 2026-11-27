@@ -40,6 +40,7 @@ def _resolve_test_url() -> str:
 TEST_DATABASE_URL = _resolve_test_url()
 # Doit précéder tout import de immo_ne_collector.db (qui crée l'engine à l'import).
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+os.environ["GEOCODING_ENABLED"] = "false"  # jamais de réseau dans les tests
 get_settings.cache_clear()
 
 from immo_ne_collector.db import AsyncSessionLocal, Base, engine  # noqa: E402

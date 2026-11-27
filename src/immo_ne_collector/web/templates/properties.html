@@ -10,22 +10,22 @@
   <a class="btn" href="/mandates" data-tour="new-mandate">{{ icon("plus") }}Nouveau mandat</a>
 </header>
 <form class="filterbar" data-tour="filters" hx-get="/properties" hx-target="#results" hx-swap="outerHTML" hx-trigger="input changed delay:300ms from:input, change from:select, change from:.tabs, submit" hx-push-url="true">
-  <label class="searchbox">{{ icon("search") }}<input type="search" name="q" value="{{ filters.q }}" placeholder="Rechercher (titre, ville, adresse)…"></label>
+  <label class="searchbox" data-tip="{{ TIPS.q }}">{{ icon("search") }}<input type="search" name="q" value="{{ filters.q }}" placeholder="Rechercher (titre, ville, adresse)…"></label>
   <div class="tabs" role="radiogroup" aria-label="Statut">
     {% for value, label in status_tabs %}
-    <label class="tab"><input type="radio" name="status" value="{{ value }}" {{ "checked" if filters.status == value }}><span>{{ label }}</span></label>
+    <label class="tab" data-tip="{{ TIPS.get(value, '') }}"><input type="radio" name="status" value="{{ value }}" {{ "checked" if filters.status == value }}><span>{{ label }}</span></label>
     {% endfor %}
   </div>
   <details class="more" {{ "open" if filters.city or filters.canton or filters.min_price or filters.max_price or filters.min_rooms or filters.sort != "recent" }}>
     <summary>Plus de filtres</summary>
     <div class="more-grid">
-      <input type="text" name="city" value="{{ filters.city }}" placeholder="Ville">
-      <input type="text" name="canton" value="{{ filters.canton }}" placeholder="Canton (NE, VD…)" maxlength="2">
-      <input type="number" name="min_price" value="{{ filters.min_price }}" placeholder="Prix min (CHF)">
-      <input type="number" name="max_price" value="{{ filters.max_price }}" placeholder="Prix max (CHF)">
-      <input type="number" step="0.5" name="min_rooms" value="{{ filters.min_rooms }}" placeholder="Pièces min">
-      <label class="check"><input type="checkbox" name="unprocessed" value="1" {{ "checked" if filters.unprocessed }}> Non traités</label>
-      <select name="sort" aria-label="Tri">
+      <input type="text" name="city" title="{{ TIPS.city }}" value="{{ filters.city }}" placeholder="Ville">
+      <input type="text" name="canton" title="{{ TIPS.canton }}" value="{{ filters.canton }}" placeholder="Canton (NE, VD…)" maxlength="2">
+      <input type="number" name="min_price" title="{{ TIPS.min_price }}" value="{{ filters.min_price }}" placeholder="Prix min (CHF)">
+      <input type="number" name="max_price" title="{{ TIPS.max_price }}" value="{{ filters.max_price }}" placeholder="Prix max (CHF)">
+      <input type="number" step="0.5" name="min_rooms" title="{{ TIPS.min_rooms }}" value="{{ filters.min_rooms }}" placeholder="Pièces min">
+      <label class="check" data-tip="{{ TIPS.unprocessed }}"><input type="checkbox" name="unprocessed" value="1" {{ "checked" if filters.unprocessed }}> Non traités</label>
+      <select name="sort" aria-label="Tri" title="{{ TIPS.sort }}">
         <option value="recent" {{ "selected" if filters.sort == "recent" }}>Plus récents</option>
         <option value="price_asc" {{ "selected" if filters.sort == "price_asc" }}>Prix croissant</option>
         <option value="price_desc" {{ "selected" if filters.sort == "price_desc" }}>Prix décroissant</option>

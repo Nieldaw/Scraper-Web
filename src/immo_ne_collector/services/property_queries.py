@@ -68,6 +68,38 @@ def sitn_status_label(status: str | None) -> str:
     return SITN_STATUS_LABELS.get(status, status)
 
 
+STATUS_DISPLAY: dict[str, str] = {
+    "new": "Nouveau",
+    "modified": "Modifié",
+    "inactive": "Plus disponible",
+    "active": "Actif",
+}
+# Explications affichées au survol (infobulles).
+TOOLTIPS: dict[str, str] = {
+    "all": "Tous les biens collectés, quel que soit leur statut.",
+    "new": "Vus pour la première fois lors de la dernière collecte (moins de 24 h).",
+    "modified": "Le prix, le titre, les pièces ou la surface ont changé depuis la collecte précédente.",
+    "inactive": "Plus vus sur le site depuis 7 jours : probablement vendus ou retirés.",
+    "active": "Toujours en ligne, sans changement récent.",
+    "q": "Cherche dans le titre, la ville et l'adresse.",
+    "city": "Nom exact de la commune (ex. Neuchâtel).",
+    "canton": "Sigle du canton sur 2 lettres : NE, VD, GE, FR, VS ou JU.",
+    "min_price": "Prix de vente minimum, en francs suisses.",
+    "max_price": "Prix de vente maximum, en francs suisses.",
+    "min_rooms": "Nombre minimum de pièces (ex. 3.5).",
+    "unprocessed": "Masque les biens que vous avez déjà marqués comme traités.",
+    "sort": "Ordre d'affichage de la liste.",
+    "verified": "Prix lu sur la fiche de l'annonce : fiable.",
+    "estimated": "Prix de la page de résultats : peut être inexact. Non confirmé sur la fiche.",
+    "processed": "Vous avez marqué ce bien comme traité.",
+    "sitn": "Vérification de la parcelle au registre foncier (SITN). Il faut une adresse complète : rue, numéro et commune.",
+}
+
+
+def status_display(label: str) -> str:
+    return STATUS_DISPLAY.get(label, label)
+
+
 def status_label(status: str) -> str:
     return STATUS_LABELS.get(status, status.lower())
 

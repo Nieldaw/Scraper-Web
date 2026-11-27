@@ -39,6 +39,8 @@ from immo_ne_collector.services.collection_jobs import (
     validate_request,
 )
 from immo_ne_collector.services.mandates import (
+    count_matching_properties,
+    prefill_from_property,
     apply_search_mandate,
     create_search_mandate,
     list_search_mandates,
@@ -50,13 +52,16 @@ from immo_ne_collector.services.property_queries import (
     count_by_status,
     get_property,
     search_properties,
+    TOOLTIPS,
     sitn_status_label,
+    status_display,
 )
 from immo_ne_collector.services.run_diagnostics import top_level_runs
 from immo_ne_collector.services.source_config import ROMANDY_CANTONS
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+templates.env.globals.update(status_fr=status_display, TIPS=TOOLTIPS)
 
 router = APIRouter(include_in_schema=False)
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -65,7 +70,7 @@ STATUS_TABS = (
     ("all", "Tous"),
     ("new", "Nouveaux"),
     ("modified", "Modifiés"),
-    ("inactive", "Inactifs"),
+    ("inactive", "Plus disponible"),
 )
 SOON_PAGES = {"analysis": "Analysis", "chat": "Chat", "account": "User & Account"}
 PAGE_SIZE = 24
@@ -201,8 +206,18 @@ async def toggle_processed(
 
 
 @router.get("/mandates", response_class=HTMLResponse)
-async def mandates_page(request: Request, session: SessionDep, selected: UUID | None = None):
+async def mandates_page(
+    request: Request,
+    session: SessionDep,
+    selected: UUID | None = None,
+    from_property: UUID | None = None,
+):
     mandates = await list_search_mandates(session)
+    form: dict[str, str] = {}
+    if from_property is not None:
+        source_row = await get_property(session, from_property)
+        if source_row is not None:
+            form = prefill_from_property(source_row)
     selected_mandate = next((m for m in mandates if m.id == selected), None)
     matches: list | None = None
     matches_total = 0
@@ -222,9 +237,71 @@ async def mandates_page(request: Request, session: SessionDep, selected: UUID | 
         "mandates.html",
         "mandates",
         mandates=mandates,
+        form=form,
         selected=selected_mandate,
         matches=matches,
         matches_total=matches_total,
+    )
+
+
+def _criteria_from_form(
+    *,
+    cities: str | None,
+    property_types: str | None,
+    min_price_chf: str | None,
+    max_price_chf: str | None,
+    min_rooms: str | None,
+    max_rooms: str | None,
+    min_living_area_m2: str | None,
+    max_living_area_m2: str | None,
+    only_active: str | None,
+):
+    return mandate_create_to_criteria(
+        SearchMandateCreate(
+            name="aperçu",
+            cities=_csv_list(cities),
+            property_types=_csv_list(property_types),
+            min_price_chf=_opt_float(min_price_chf),
+            max_price_chf=_opt_float(max_price_chf),
+            min_rooms=_opt_float(min_rooms),
+            max_rooms=_opt_float(max_rooms),
+            min_living_area_m2=_opt_float(min_living_area_m2),
+            max_living_area_m2=_opt_float(max_living_area_m2),
+            only_active=only_active is not None,
+        )
+    )
+
+
+@router.get("/mandates/preview", response_class=HTMLResponse)
+async def mandate_preview(
+    session: SessionDep,
+    cities: str | None = None,
+    property_types: str | None = None,
+    min_price_chf: str | None = None,
+    max_price_chf: str | None = None,
+    min_rooms: str | None = None,
+    max_rooms: str | None = None,
+    min_living_area_m2: str | None = None,
+    max_living_area_m2: str | None = None,
+    only_active: str | None = None,
+):
+    """Fragment HTMX : nombre de biens correspondant aux critères saisis (mis à jour en direct)."""
+    criteria = _criteria_from_form(
+        cities=cities,
+        property_types=property_types,
+        min_price_chf=min_price_chf,
+        max_price_chf=max_price_chf,
+        min_rooms=min_rooms,
+        max_rooms=max_rooms,
+        min_living_area_m2=min_living_area_m2,
+        max_living_area_m2=max_living_area_m2,
+        only_active=only_active,
+    )
+    total = await count_matching_properties(session, criteria)
+    plural = "s" if total > 1 else ""
+    return HTMLResponse(
+        f'<strong id="match-count" data-count="{total}">{total} bien{plural} correspond'
+        f'{"ent" if total > 1 else ""} actuellement</strong>'
     )
 
 

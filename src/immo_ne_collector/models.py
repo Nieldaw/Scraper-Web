@@ -5,6 +5,7 @@ from enum import StrEnum
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Numeric,
     String,
@@ -59,6 +60,8 @@ class Property(Base):
     is_processed: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false"), index=True
     )
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
     needs_completion: Mapped[bool] = mapped_column(Boolean, default=False)
     completion_reason: Mapped[str | None] = mapped_column(String(120))
     sitn_eligible: Mapped[bool] = mapped_column(Boolean, default=False)

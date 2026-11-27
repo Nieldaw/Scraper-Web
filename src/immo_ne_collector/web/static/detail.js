@@ -33,6 +33,9 @@
       }).addTo(map);
       L.circle([lat, lon], { radius: 600, color: "#c8f53c", fillOpacity: 0.15 }).addTo(map);
     }
+    if (el.dataset.lat && el.dataset.lon) {  // coordonnées déjà connues (geo.admin.ch)
+      return show(parseFloat(el.dataset.lat), parseFloat(el.dataset.lon));
+    }
     var cached = null;
     try { cached = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
     if (cached) return show(cached[0], cached[1]);

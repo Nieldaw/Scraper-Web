@@ -50,7 +50,7 @@
       element: '[data-tour="filters"]',
       popover: {
         title: "Filtres",
-        description: "Affinez par statut (nouveaux, modifiés, inactifs), ville, canton, prix ou pièces. La liste se met à jour toute seule.",
+        description: "Affinez par statut (nouveaux, modifiés, plus disponibles), ville, canton, prix ou pièces. La liste se met à jour toute seule.",
         side: "bottom", align: "start"
       }
     },

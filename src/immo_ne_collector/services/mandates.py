@@ -263,3 +263,39 @@ async def run_mandate_and_export(
             output_dir=output_dir,
         )
         return mandate, result, export_result
+
+
+async def count_matching_properties(session: AsyncSession, criteria: MandateCriteria) -> int:
+    """Nombre de biens qui correspondraient à ces critères (sans créer de mandat)."""
+    properties = (await session.execute(select(Property))).scalars().all()
+    return sum(1 for row in properties if _matches_criteria(row, criteria)[0])
+
+
+def _round_to(value: float, step: int, *, up: bool) -> int:
+    import math
+
+    return int((math.ceil if up else math.floor)(value / step) * step)
+
+
+def prefill_from_property(row: Property) -> dict[str, str]:
+    """Valeurs de départ du formulaire de mandat : critères proches du bien (±20 % prix/surface, ±1 pièce)."""
+    values: dict[str, str] = {}
+    label = " ".join(p for p in (row.property_type, row.city) if p)
+    values["name"] = f"Mandat – {label}" if label else "Nouveau mandat"
+    if row.city:
+        values["cities"] = row.city
+    if row.property_type:
+        values["property_types"] = row.property_type
+    if row.price_chf is not None:
+        price = float(row.price_chf)
+        values["min_price_chf"] = str(_round_to(price * 0.8, 5000, up=False))
+        values["max_price_chf"] = str(_round_to(price * 1.2, 5000, up=True))
+    if row.rooms is not None:
+        rooms = float(row.rooms)
+        values["min_rooms"] = f"{max(rooms - 1, 1):g}"
+        values["max_rooms"] = f"{rooms + 1:g}"
+    if row.living_area_m2 is not None:
+        area = float(row.living_area_m2)
+        values["min_living_area_m2"] = str(_round_to(area * 0.8, 5, up=False))
+        values["max_living_area_m2"] = str(_round_to(area * 1.2, 5, up=True))
+    return values

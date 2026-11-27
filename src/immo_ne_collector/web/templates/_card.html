@@ -6,14 +6,14 @@
     {% else %}
       <div class="placeholder">{{ icon("image") }}<span>Pas de photo</span></div>
     {% endif %}
-    <span class="chip chip-{{ p.status_label }}">{{ {"new":"Nouveau","modified":"Modifié","inactive":"Inactif","active":"Actif"}.get(p.status_label, p.status_label) }}</span>
+    <span class="chip chip-{{ p.status_label }}" title="{{ TIPS.get(p.status_label, '') }}">{{ status_fr(p.status_label) }}</span>
   </div>
   <div class="card-body">
     <div class="price">{% if p.price_chf is not none %}CHF {{ "{:,.0f}".format(p.price_chf).replace(",", "'") }}{% else %}Prix non communiqué{% endif %}
-      {% if p.price_status == "verified" %}<span class="pstat pstat-verified" title="Prix lu sur la fiche de l'annonce">✓ vérifié</span>
-      {% elif p.price_status == "estimated" %}<span class="pstat pstat-estimated" title="Prix de la page de résultats : peut être inexact (Anibis). Non confirmé sur la fiche.">≈ estimé</span>{% endif %}
+      {% if p.price_status == "verified" %}<span class="pstat pstat-verified" title="{{ TIPS.verified }}">✓ vérifié</span>
+      {% elif p.price_status == "estimated" %}<span class="pstat pstat-estimated" title="{{ TIPS.estimated }}">≈ estimé</span>{% endif %}
     </div>
-    <h3>{{ p.title or "Sans titre" }}{% if p.is_processed %}<span class="badge-processed" title="Vous avez marqué ce bien comme traité">✓ Traité</span>{% endif %}</h3>
+    <h3>{{ p.title or "Sans titre" }}{% if p.is_processed %}<span class="badge-processed" title="{{ TIPS.processed }}">✓ Traité</span>{% endif %}</h3>
     <p class="loc">{{ [p.postal_code, p.city] | select | join(" ") or "Lieu inconnu" }}</p>
     <div class="metrics">
       <span>{{ icon("bed") }}{% if p.rooms is not none %}{{ p.rooms | round(1) }} pièces{% else %}– pièces{% endif %}</span>

@@ -8,14 +8,16 @@
 <div class="two-col">
   <section>
     <h2>Nouveau mandat</h2>
-    <form method="post" action="/mandates" class="form">
-      <label>Nom <input name="name" required></label>
-      <label>Villes (séparées par des virgules) <input name="cities"></label>
-      <label>Types de bien <input name="property_types" placeholder="apartment, house"></label>
-      <div class="row"><label>Prix min <input name="min_price_chf" type="number"></label><label>Prix max <input name="max_price_chf" type="number"></label></div>
-      <div class="row"><label>Pièces min <input name="min_rooms" type="number" step="0.5"></label><label>Pièces max <input name="max_rooms" type="number" step="0.5"></label></div>
-      <div class="row"><label>Surface min (m²) <input name="min_living_area_m2" type="number"></label><label>Surface max (m²) <input name="max_living_area_m2" type="number"></label></div>
+    {% if form %}<p class="notice notice-success">Formulaire pré-rempli d'après le bien choisi : ajustez les critères avant de créer le mandat.</p>{% endif %}
+    <form method="post" action="/mandates" class="form" hx-get="/mandates/preview" hx-trigger="load, input changed delay:300ms, change" hx-target="#match-box" hx-swap="innerHTML">
+      <label>Nom <input name="name" required value="{{ form.get('name', '') }}"></label>
+      <label>Villes (séparées par des virgules) <input name="cities" value="{{ form.get('cities', '') }}"></label>
+      <label>Types de bien <input name="property_types" value="{{ form.get('property_types', '') }}" placeholder="apartment, house"></label>
+      <div class="row"><label>Prix min <input name="min_price_chf" value="{{ form.get('min_price_chf', '') }}" type="number"></label><label>Prix max <input name="max_price_chf" value="{{ form.get('max_price_chf', '') }}" type="number"></label></div>
+      <div class="row"><label>Pièces min <input name="min_rooms" value="{{ form.get('min_rooms', '') }}" type="number" step="0.5"></label><label>Pièces max <input name="max_rooms" value="{{ form.get('max_rooms', '') }}" type="number" step="0.5"></label></div>
+      <div class="row"><label>Surface min (m²) <input name="min_living_area_m2" value="{{ form.get('min_living_area_m2', '') }}" type="number"></label><label>Surface max (m²) <input name="max_living_area_m2" value="{{ form.get('max_living_area_m2', '') }}" type="number"></label></div>
       <label class="check"><input type="checkbox" name="only_active" checked> Biens actifs uniquement</label>
+      <p class="match-box" id="match-box" role="status" aria-live="polite">Calcul…</p>
       <button type="submit">Créer le mandat</button>
     </form>
   </section>

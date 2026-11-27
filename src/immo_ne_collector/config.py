@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     new_window_hours: int = 24
     updated_window_hours: int = 24
     log_level: str = "INFO"
+    # Coordonnées via geo.admin.ch (code postal uniquement). Désactivé dans les tests.
+    geocoding_enabled: bool = True
 
 
 @lru_cache

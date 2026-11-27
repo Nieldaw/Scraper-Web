@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -6,6 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from immo_ne_collector.config import get_settings
 from immo_ne_collector.db import AsyncSessionLocal
 from immo_ne_collector.models import DailyRun, Property, PropertyStatus, SourceListing
 from immo_ne_collector.services.collection import CollectionBatch
@@ -15,6 +17,7 @@ from immo_ne_collector.services.deduplication import (
     decide_property_match,
 )
 from immo_ne_collector.services.normalization import NormalizedListing
+from immo_ne_collector.services.geocoding import geocode_missing_properties
 from immo_ne_collector.services.property_history import (
     add_history_rows,
     diff_tracked_fields,
@@ -26,6 +29,8 @@ from immo_ne_collector.services.source_config import (
     normalize_detected_canton,
 )
 from immo_ne_collector.services.statuses import detect_changed_fields
+
+logger = logging.getLogger(__name__)
 
 TRACKED_CHANGE_FIELDS = ("title", "price_chf", "rooms", "living_area_m2", "description")
 
@@ -476,7 +481,22 @@ async def persist_collection_batch(
     session: AsyncSession | None = None,
 ) -> PersistenceResult:
     if session is not None:
-        return await _persist_collection_batch_in_session(session, batch)
+        result = await _persist_collection_batch_in_session(session, batch)
+        await _geocode_quietly(session, result)
+        return result
 
     async with AsyncSessionLocal() as owned_session:
-        return await _persist_collection_batch_in_session(owned_session, batch)
+        result = await _persist_collection_batch_in_session(owned_session, batch)
+        await _geocode_quietly(owned_session, result)
+        return result
+
+
+async def _geocode_quietly(session: AsyncSession, result: "PersistenceResult") -> None:
+    """Coordonnées par code postal (geo.admin.ch) ; ne fait jamais échouer la collecte."""
+    if result.errors or not get_settings().geocoding_enabled:
+        return
+    try:
+        await geocode_missing_properties(session)
+    except Exception as exc:  # réseau, base… : la collecte reste valide
+        await session.rollback()
+        logger.warning("Géocodage ignoré : %s", exc)

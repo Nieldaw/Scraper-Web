@@ -91,7 +91,7 @@ Sous macOS ou Linux : même principe avec Docker Desktop (ou Docker Engine), pui
 
 ## Tableau de bord (`/`)
 
-- **Compteurs** : total des biens, *Nouveaux*, *Modifiés*, *Inactifs*. Cliquer sur un compteur ouvre la
+- **Compteurs** : total des biens, *Nouveaux*, *Modifiés*, *Plus disponible*. Cliquer sur un compteur ouvre la
   liste des biens correspondants.
 - **Dernière collecte** : statut et date de départ ; s'il y a eu une erreur, elle est résumée ici.
 - **Derniers nouveaux biens** : jusqu'à 8 cartes des biens les plus récemment vus au statut *Nouveau*.
@@ -118,7 +118,7 @@ L'API expose le même champ : `price_status` (`verified`, `estimated` ou `null`)
   - *Tous* — tous les biens, y compris les biens « actifs » ni nouveaux ni modifiés ;
   - *Nouveaux* — vus pour la première fois récemment ;
   - *Modifiés* — prix ou contenu changé depuis la dernière collecte ;
-  - *Inactifs* — plus vus depuis 7 jours (réglage `INACTIVE_AFTER_DAYS`) ou retirés.
+  - *Plus disponible* — plus vus depuis 7 jours (réglage `INACTIVE_AFTER_DAYS`) ou retirés.
 - **Plus de filtres** : ville, canton (`NE`, `VD`…), prix min/max, pièces min, tri (récents, prix croissant ou
   décroissant).
 
@@ -222,3 +222,12 @@ choisissez la source, le canton et le fichier. Seules les annonces de **vente** 
 - **Traité :** le bouton « Marquer comme traité » (fiche du bien) retire le bien de la liste lorsque vous cochez
   **Non traités** dans les filtres de la page Propriétés.
 - Après une mise à jour du code, lancez `make migrate` pour créer la table d'historique et le champ « traité ».
+
+## Mandats depuis une annonce, coordonnées et infobulles
+
+- **Fiche d'un bien → « Créer un mandat depuis cette annonce »** ouvre le formulaire pré-rempli (ville, type,
+  prix ±20 %, pièces ±1, surface ±20 %). Un compteur indique en direct combien de biens correspondent.
+- **Coordonnées :** après chaque collecte, le code postal de chaque bien est envoyé (seul) à l'API publique
+  geo.admin.ch pour placer la carte. Pour les biens déjà en base : `python -m immo_ne_collector.services.geocoding`.
+  Désactivable avec `GEOCODING_ENABLED=false`.
+- **Infobulles :** survolez (ou sélectionnez au clavier) les statuts, onglets et filtres pour une explication.
