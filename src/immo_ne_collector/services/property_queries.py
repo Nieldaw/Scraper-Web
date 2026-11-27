@@ -53,6 +53,21 @@ def price_status_of(raw_data: Mapping[str, Any] | None) -> str | None:
     return None
 
 
+SITN_STATUS_LABELS: dict[str, str] = {
+    "OK": "Parcelle identifiée",
+    "AMBIGUOUS": "Plusieurs parcelles possibles",
+    "NOT_FOUND": "Parcelle introuvable",
+    "NOT_ELIGIBLE_MISSING_ADDRESS": "Adresse incomplète",
+    "NOT_RUN": "Pas encore vérifié",
+}
+
+
+def sitn_status_label(status: str | None) -> str:
+    if not status:
+        return "–"
+    return SITN_STATUS_LABELS.get(status, status)
+
+
 def status_label(status: str) -> str:
     return STATUS_LABELS.get(status, status.lower())
 

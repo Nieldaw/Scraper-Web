@@ -15,7 +15,13 @@ from immo_ne_collector.api.routes import mandate_create_to_criteria, property_to
 from immo_ne_collector.db import get_session
 from immo_ne_collector.models import DailyRun, Property
 from immo_ne_collector.schemas import SearchMandateCreate
-from immo_ne_collector.services.property_history import FIELD_LABELS, list_history
+from immo_ne_collector.services.amenities import extract_amenities
+from immo_ne_collector.services.images import extract_image_urls
+from immo_ne_collector.services.property_history import (
+    FIELD_LABELS,
+    extract_agency_name,
+    list_history,
+)
 from immo_ne_collector.services.html_import import (
     IMPORT_SOURCES,
     HtmlImportError,
@@ -44,6 +50,7 @@ from immo_ne_collector.services.property_queries import (
     count_by_status,
     get_property,
     search_properties,
+    sitn_status_label,
 )
 from immo_ne_collector.services.run_diagnostics import top_level_runs
 from immo_ne_collector.services.source_config import ROMANDY_CANTONS
@@ -170,6 +177,13 @@ async def property_detail(property_id: UUID, request: Request, session: SessionD
         listings=listings,
         sitn_url=row.sitn_url,
         history=await list_history(session, property_id),
+        description=next((l.description for l in listings if l.description and l.description.strip()), None),
+        amenities=extract_amenities(row.title, *(l.description for l in listings)),
+        gallery=extract_image_urls(row.raw_data) or [],
+        agency=extract_agency_name(row.raw_data),
+        sitn_label=sitn_status_label(row.sitn_status),
+        map_query=", ".join(p for p in (row.postal_code, row.city) if p),
+        listing_agencies={str(l.id): extract_agency_name(l.raw_data) for l in listings},
         field_labels=FIELD_LABELS,
     )
 

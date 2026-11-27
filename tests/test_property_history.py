@@ -113,3 +113,35 @@ async def test_detail_page_toggle_processed_and_timeline():
         assert "✓ traité" in (await client.get(f"/properties/{pid}")).text
         html = (await client.get("/properties?unprocessed=1")).text
         assert "Maison" not in html.split('id="results"')[-1]
+
+
+@pytest.mark.db
+async def test_detail_page_shows_description_tags_sitn_french_and_button():
+    from httpx import ASGITransport, AsyncClient
+
+    from immo_ne_collector.main import app
+
+    class _WithText(_Fake):
+        async def collect_safe(self):
+            rows = await super().collect_safe()
+            rows[0].description_raw = "Belle maison avec balcon et garage. <b>x</b>"
+            rows[0].raw_data = {"agency_name": "Régie Lac", "images": ["https://i/1.jpg", "https://i/2.jpg"]}
+            return rows
+
+    await persist_collection_batch(await collect_and_normalize(_WithText("CHF 600'000", "Maison")))
+    async with AsyncSessionLocal() as session:
+        row = (await session.execute(select(Property))).scalars().one()
+        pid = row.id
+        row.is_processed = True
+        await session.commit()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        page = (await client.get(f"/properties/{pid}")).text
+        assert "Belle maison avec balcon" in page and "&lt;b&gt;" not in page or "x" in page
+        assert ">Balcon<" in page and ">Garage<" in page
+        assert "Voir l&#39;annonce originale" in page or "Voir l'annonce originale" in page
+        assert "Régie Lac" in page
+        assert "Pas encore vérifié" in page or "Adresse incomplète" in page
+        assert 'data-gallery' in page and "https://i/2.jpg" in page
+        assert "NOT_ELIGIBLE" not in page.replace('title="NOT_ELIGIBLE_MISSING_ADDRESS"', "")
+        grid = (await client.get("/properties")).text
+        assert "is-processed" in grid and "✓ Traité" in grid

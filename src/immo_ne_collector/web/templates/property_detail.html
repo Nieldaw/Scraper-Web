@@ -7,8 +7,18 @@
   <p class="muted">{{ item.address_full or [item.postal_code, item.city] | select | join(" ") or "Adresse inconnue" }}</p>
 </header>
 <div class="detail">
-  <div class="card-img detail-img">
-    {% if item.image_url %}<img src="{{ item.image_url }}" alt="" referrerpolicy="no-referrer">{% else %}<div class="placeholder">Pas de photo</div>{% endif %}
+  <div class="card-img detail-img gallery" data-gallery>
+    {% set pics = gallery or ([item.image_url] if item.image_url else []) %}
+    {% if pics %}
+    <div class="gallery-track">
+      {% for url in pics %}<img src="{{ url }}" alt="Photo {{ loop.index }} sur {{ pics|length }}" loading="{{ 'eager' if loop.first else 'lazy' }}" referrerpolicy="no-referrer">{% endfor %}
+    </div>
+    {% if pics|length > 1 %}
+    <button type="button" class="gal-btn gal-prev" aria-label="Photo précédente">‹</button>
+    <button type="button" class="gal-btn gal-next" aria-label="Photo suivante">›</button>
+    <span class="gal-count" data-count>1 / {{ pics|length }}</span>
+    {% endif %}
+    {% else %}<div class="placeholder">Pas de photo</div>{% endif %}
   </div>
   <dl>
     <dt>Statut</dt><dd><span class="chip chip-{{ item.status_label }} chip-inline">{{ item.status_label }}</span></dd>
@@ -16,6 +26,7 @@
       {% if item.price_status == "verified" %}<span class="pstat pstat-verified">✓ vérifié sur la fiche</span>{% elif item.price_status == "estimated" %}<span class="pstat pstat-estimated">≈ estimé (page de résultats, non confirmé)</span>{% endif %}</dd>
     <dt>Pièces</dt><dd>{{ item.rooms if item.rooms is not none else "–" }}</dd>
     <dt>Surface</dt><dd>{{ item.living_area_m2 if item.living_area_m2 is not none else "–" }} m²</dd>
+    {% if agency %}<dt>Agence</dt><dd>{{ agency }}</dd>{% endif %}
     <dt>Type</dt><dd>{{ item.property_type or "–" }}</dd>
     <dt>Vu pour la 1<sup>re</sup> fois</dt><dd>{{ item.first_seen_at.strftime("%d.%m.%Y") }}</dd>
     <dt>Dernière vue</dt><dd>{{ item.last_seen_at.strftime("%d.%m.%Y") }}</dd>
@@ -24,22 +35,34 @@
         <input type="hidden" name="processed" value="{{ 0 if item.is_processed else 1 }}">
         <button type="submit" class="btn-small">{{ "Marquer comme non traité" if item.is_processed else "Marquer comme traité" }}</button>
       </form></dd>
-    <dt>SITN</dt><dd>{{ item.sitn_status or "–" }}{% if sitn_url %} — <a href="{{ sitn_url }}" rel="noopener noreferrer">lien</a>{% endif %}</dd>
+    <dt>SITN</dt><dd title="{{ item.sitn_status or '' }}">{{ sitn_label }}{% if sitn_url %} — <a href="{{ sitn_url }}" rel="noopener noreferrer">lien</a>{% endif %}</dd>
   </dl>
 </div>
+{% if amenities %}
+<h2>Équipements</h2>
+<ul class="tags">{% for a in amenities %}<li class="tag">{{ a }}</li>{% endfor %}</ul>
+{% endif %}
+<h2>Description</h2>
+{% if description %}<div class="description">{{ description }}</div>
+{% else %}<p class="muted">Aucune description fournie par l'annonce.</p>{% endif %}
+{% if map_query %}
+<h2>Localisation <span class="muted small">(centrée sur le code postal, approximative)</span></h2>
+<div id="map" class="map" data-query="{{ map_query }}" role="img" aria-label="Carte de {{ map_query }}"></div>
+{% endif %}
 <h2>Annonces sources</h2>
 <table>
-  <thead><tr><th>Source</th><th>Prix</th><th>Dernière vue</th><th>Lien</th></tr></thead>
+  <thead><tr><th>Source</th><th>Agence</th><th>Prix</th><th>Dernière vue</th><th>Annonce</th></tr></thead>
   <tbody>
   {% for l in listings %}
     <tr>
       <td>{{ l.source }}</td>
+      <td>{{ listing_agencies.get(l.id|string) or "–" }}</td>
       <td>{% if l.price_chf is not none %}CHF {{ "{:,.0f}".format(l.price_chf).replace(",", "'") }}{% else %}–{% endif %}</td>
       <td>{{ l.last_seen_at.strftime("%d.%m.%Y") }}</td>
-      <td><a href="{{ l.url }}" rel="noopener noreferrer" target="_blank">Ouvrir</a></td>
+      <td><a class="btn-primary" href="{{ l.url }}" rel="noopener noreferrer" target="_blank">Voir l'annonce originale{% if listing_agencies.get(l.id|string) %} <span class="small">({{ listing_agencies.get(l.id|string) }})</span>{% endif %}</a></td>
     </tr>
   {% else %}
-    <tr><td colspan="4" class="muted">Aucune annonce liée.</td></tr>
+    <tr><td colspan="5" class="muted">Aucune annonce liée.</td></tr>
   {% endfor %}
   </tbody>
 </table>
@@ -58,4 +81,7 @@
 {% else %}
 <p class="muted">Aucune modification détectée depuis la première collecte.</p>
 {% endif %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', path='detail.js') }}" defer></script>
 {% endblock %}

@@ -42,3 +42,26 @@ def extract_image_url(raw_data: Mapping[str, Any] | None) -> str | None:
             if url:
                 return url
     return None
+
+
+def extract_image_urls(raw_data: Mapping[str, Any] | None, *, limit: int = 12) -> list[str]:
+    """Toutes les URL d'images valides (sans doublon, ordre conservé), pour la galerie."""
+    if not isinstance(raw_data, Mapping):
+        return []
+    found: list[str] = []
+
+    def add(value: Any) -> None:
+        if isinstance(value, Mapping):
+            value = value.get("url")
+        url = valid_http_url(value)
+        if url and url not in found:
+            found.append(url)
+
+    for key in _IMAGE_KEYS:
+        add(raw_data.get(key))
+    for key in _IMAGE_LIST_KEYS:
+        values = raw_data.get(key)
+        if isinstance(values, list):
+            for item in values:
+                add(item)
+    return found[:limit]

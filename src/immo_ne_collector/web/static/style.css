@@ -235,3 +235,19 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 .inline-form { display: inline; margin-left: .6rem; }
 .btn-small { padding: .25rem .7rem; font-size: .8rem; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--panel); color: inherit; cursor: pointer; }
 .btn-small:hover { border-color: var(--accent); }
+
+.gallery { position: relative; }
+.gallery-track { display: flex; height: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+.gallery-track::-webkit-scrollbar { display: none; }
+.gallery-track img { flex: 0 0 100%; width: 100%; height: 100%; object-fit: cover; scroll-snap-align: center; }
+.gal-btn { position: absolute; top: 50%; transform: translateY(-50%); width: 2.2rem; height: 2.2rem; border-radius: 50%; border: 0; background: rgba(0,0,0,.55); color: #fff; font-size: 1.4rem; cursor: pointer; }
+.gal-prev { left: .5rem; } .gal-next { right: .5rem; }
+.gal-count { position: absolute; right: .6rem; bottom: .5rem; background: rgba(0,0,0,.6); color: #fff; font-size: .75rem; padding: .1rem .5rem; border-radius: 99px; }
+.description { white-space: pre-line; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.1rem; line-height: 1.55; margin-bottom: 1.5rem; }
+.tags { list-style: none; display: flex; flex-wrap: wrap; gap: .45rem; padding: 0; margin: 0 0 1.5rem; }
+.tag { padding: .2rem .7rem; border-radius: 99px; border: 1px solid var(--border-strong); background: var(--panel); font-size: .85rem; }
+.map { height: 300px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 1.5rem; display: grid; place-items: center; color: var(--muted); }
+.btn-primary { display: inline-block; padding: .45rem .9rem; border-radius: 9px; background: var(--accent); color: #0b0d08; font-weight: 700; text-decoration: none; }
+.btn-primary:hover { filter: brightness(1.08); }
+.card.is-processed { border-color: #3fa34d; box-shadow: 0 0 0 1px #3fa34d; }
+.badge-processed { display: inline-block; margin-left: .4rem; padding: .05rem .5rem; border-radius: 99px; font-size: .7rem; font-weight: 700; color: #7be08a; border: 1px solid #3fa34d; background: #0f2414; vertical-align: middle; }
