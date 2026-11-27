@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Coûts Apify – Immo Collector{% endblock %}
+{% block content %}
+{% set cur = overview.current %}
+<header class="page-head">
+  <h1>Coûts Apify</h1>
+  <p class="muted">Dépenses relevées dans la table <code>apify_usage</code> (alimentée par vos scripts). Montants en dollars US.</p>
+</header>
+
+<div class="costs">
+<section class="stats">
+  <div class="stat"><span class="stat-n">{{ usd(cur.total_cost) }}</span><span>Dépensé en {{ cur.label }}</span></div>
+  <div class="stat"><span class="stat-n">{{ cur.requests }}</span><span>Requête{{ "s" if cur.requests != 1 }} ce mois-ci</span></div>
+  <div class="stat"><span class="stat-n">{{ cur.failed }}</span><span>En échec ce mois-ci</span></div>
+  <div class="stat"><span class="stat-n">{{ usd(overview.all_time_cost) }}</span><span>Total depuis le début ({{ overview.all_time_requests }} requête{{ "s" if overview.all_time_requests != 1 }})</span></div>
+</section>
+
+{% if overview.all_time_requests == 0 %}
+<p class="empty">Aucun appel Apify enregistré pour le moment. Les lignes apparaîtront ici dès que vos scripts écriront dans <code>apify_usage</code>.</p>
+{% else %}
+<h2>Par mois</h2>
+<table>
+  <thead><tr><th>Mois</th><th>Coût</th><th>Requêtes</th><th>En échec</th></tr></thead>
+  <tbody>
+  {% for m in overview.history %}
+    <tr><td>{{ m.label }}</td><td>{{ usd(m.total_cost) }}</td><td>{{ m.requests }}</td><td>{{ m.failed }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Par acteur ({{ cur.label }})</h2>
+{% if overview.by_actor %}
+<table>
+  <thead><tr><th>Acteur</th><th>Coût</th><th>Requêtes</th></tr></thead>
+  <tbody>
+  {% for a in overview.by_actor %}
+    <tr><td>{{ a.actor_id }}</td><td>{{ usd(a.total_cost) }}</td><td>{{ a.requests }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="muted">Aucun appel ce mois-ci.</p>{% endif %}
+
+<h2>Derniers appels</h2>
+<table>
+  <thead><tr><th>Date</th><th>Acteur</th><th>Statut</th><th>Coût</th></tr></thead>
+  <tbody>
+  {% for u in overview.recent %}
+    <tr><td>{{ u.date.astimezone(tz).strftime("%d.%m.%Y %H:%M") }}</td><td>{{ u.actor_id }}</td><td>{{ u.status }}</td><td>{{ usd(u.cost) }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+</div>
+{% endblock %}

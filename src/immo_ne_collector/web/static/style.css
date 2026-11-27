@@ -310,3 +310,7 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 .dual input[type=range]:focus-visible::-moz-range-thumb { outline: 2px solid var(--text); outline-offset: 2px; }
 @media (max-width: 900px) { .multi-panel { width: 100%; } }
 .form .types .field-label { margin-bottom: .3rem; }
+
+/* --- page Coûts Apify -------------------------------------------------------------------- */
+.costs h2 { margin: 2rem 0 .75rem; }
+.costs table { display: table; }

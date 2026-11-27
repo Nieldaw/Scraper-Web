@@ -57,6 +57,7 @@ from immo_ne_collector.services.property_queries import (
     status_display,
 )
 from immo_ne_collector.services.run_diagnostics import top_level_runs
+from immo_ne_collector.services.apify_costs import LOCAL_TZ, format_usd, load_costs_overview
 from immo_ne_collector.services.filter_options import (
     PRICE_STEPS,
     ROOM_STEPS,
@@ -551,6 +552,12 @@ async def settings_import(
         running=await running_collection(session) is not None,
         **context,
     )
+
+
+@router.get("/costs", response_class=HTMLResponse)
+async def costs_page(request: Request, session: SessionDep):
+    overview = await load_costs_overview(session)
+    return _render(request, "costs.html", "costs", overview=overview, usd=format_usd, tz=LOCAL_TZ)
 
 
 @router.get("/{slug}", response_class=HTMLResponse)
