@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     # Coordonnées via geo.admin.ch (code postal uniquement). Désactivé dans les tests.
     geocoding_enabled: bool = True
+    # Clé de l'API Anthropic (génération des brouillons d'e-mails) ; lue aussi depuis l'environnement.
+    anthropic_api_key: str | None = None
 
 
 @lru_cache

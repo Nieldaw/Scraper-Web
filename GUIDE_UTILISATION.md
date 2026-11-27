@@ -249,3 +249,23 @@ vous cliquez sur **Marquer comme envoyé**.
 - Statuts : *Brouillon* → *Validé* → *Envoyé*. Un brouillon envoyé n'est plus modifiable.
 - Boutons : **Valider**, **Remettre en brouillon**, **Marquer comme envoyé** (date d'envoi enregistrée).
 - Les onglets filtrent par statut ; un brouillon disparaît avec son bien.
+
+### Générer les brouillons avec l'API Anthropic
+
+```bash
+python3 scripts/generate_emails.py --dry-run          # liste les biens concernés, sans appel ni écriture
+python3 scripts/generate_emails.py --limit 5 --sender-name "Claire Martin" --sender-agency "Immo Martin"
+python3 scripts/generate_emails.py --only-new --canton NE --limit 20
+```
+
+- **Clé** : `ANTHROPIC_API_KEY` dans l'environnement ou dans `.env`. Modèle : `claude-opus-5-5` par défaut
+  (`--model` ou `ANTHROPIC_MODEL` pour en changer).
+- **Biens retenus** : actifs et sans aucun brouillon (`--only-new` : seulement les « nouveaux »), les plus
+  récents d'abord, 10 au maximum par défaut (`--limit`, 200 au plus).
+- **Deux appels par bien** : le skill « rédaction » écrit l'e-mail, puis le skill « humanisation » le réécrit.
+  Le résultat est inséré dans `email_drafts` au statut *Brouillon*. Les prompts sont les constantes
+  `SKILL_REDACTION` et `SKILL_HUMANIZE` de `services/email_generation.py`.
+- **Données envoyées à l'API** : uniquement celles de l'annonce publique (titre, type, lieu, prix, pièces,
+  surface, description, agence). Le nom d'un propriétaire issu du registre foncier n'est jamais transmis.
+- Sans `--sender-name` / `--sender-agency`, l'e-mail se termine par `[Votre nom]` et `[Votre agence]` à
+  remplacer avant l'envoi. Relisez toujours le texte : un brouillon peut contenir une erreur.
