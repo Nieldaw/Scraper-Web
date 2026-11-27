@@ -47,7 +47,7 @@ from immo_ne_collector.db import AsyncSessionLocal, Base, engine  # noqa: E402
 from immo_ne_collector import models  # noqa: E402,F401  (enregistre les tables sur Base)
 
 TRUNCATE_SQL = text(
-    "TRUNCATE TABLE source_listings, properties, search_mandates, daily_runs RESTART IDENTITY CASCADE"
+    "TRUNCATE TABLE source_listings, properties, search_mandates, daily_runs, apify_usage RESTART IDENTITY CASCADE"
 )
 
 

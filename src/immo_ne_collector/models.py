@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -90,6 +91,18 @@ class PropertyHistory(Base):
     new_value: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(String(100))
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ApifyUsage(Base):
+    """Un appel à un acteur Apify et son coût (suivi des dépenses)."""
+
+    __tablename__ = "apify_usage"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    actor_id: Mapped[str] = mapped_column(String(200), index=True)
+    cost: Mapped[Decimal] = mapped_column(Numeric(12, 4), default=Decimal("0"))  # en USD
+    status: Mapped[str] = mapped_column(String(40))  # ex. SUCCEEDED, FAILED, ABORTED, TIMED-OUT
 
 
 class SourceListing(Base):

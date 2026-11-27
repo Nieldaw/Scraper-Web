@@ -13,6 +13,28 @@ from immo_ne_collector.services.source_config import (
 VALID_TRANSACTION_TYPES = ("sale", "rent", "unknown", "all")
 VALID_CANTONS = ROMANDY_CANTONS
 
+# Libellés d'offre reconnus (sources et scrapers variés). Tout le reste = « unknown ».
+_SALE_VALUES = frozenset({"sale", "buy", "vente", "achat", "acheter", "a vendre", "kaufen"})
+_RENT_VALUES = frozenset({"rent", "location", "louer", "a louer", "loyer", "mieten"})
+
+
+def canonical_transaction_type(value: object) -> str:
+    """Ramène l'offre à « sale », « rent » ou « unknown » (« buy » → « sale »)."""
+    text = str(value or "").strip().lower()
+    if text in _SALE_VALUES:
+        return "sale"
+    if text in _RENT_VALUES:
+        return "rent"
+    return "unknown"
+
+
+def is_strict_sale(listing) -> bool:
+    """Vente certaine : offre « sale/buy » ET aucun indice de loyer relevé sur la fiche détail."""
+    raw = listing.raw_data
+    if canonical_transaction_type(raw.get("transaction_type")) != "sale":
+        return False
+    return not raw.get("detail_price_is_rent")
+
 
 @dataclass(frozen=True)
 class FilterStats:
@@ -53,7 +75,8 @@ def filter_collection_batch(
 ) -> tuple[CollectionBatch, FilterStats]:
     original_count = len(batch.listings)
     tx_counts = Counter(
-        str(listing.raw_data.get("transaction_type", "unknown")) for listing in batch.listings
+        canonical_transaction_type(listing.raw_data.get("transaction_type"))
+        for listing in batch.listings
     )
     enriched_listings = []
     for listing in batch.listings:
@@ -115,11 +138,15 @@ def filter_collection_batch(
         excluded_examples = [item.url for item in excluded[:5]]
         filtered = kept
 
-    if transaction_type != "all":
+    if transaction_type == "sale":
+        # Strict : les locations ET les offres indéterminées sont rejetées.
+        filtered = [listing for listing in filtered if is_strict_sale(listing)]
+    elif transaction_type != "all":
         filtered = [
             listing
             for listing in filtered
-            if listing.raw_data.get("transaction_type", "unknown") == transaction_type
+            if canonical_transaction_type(listing.raw_data.get("transaction_type"))
+            == transaction_type
         ]
 
     if max_listings is not None:

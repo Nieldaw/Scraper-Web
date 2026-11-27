@@ -280,17 +280,19 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 .multi summary::after { content: "▾"; position: absolute; right: .75rem; top: 50%; transform: translateY(-50%); color: var(--muted); }
 .multi[open] summary { border-color: var(--accent); }
 .multi-panel {
-  position: absolute; z-index: 20; left: 0; right: 0; margin-top: .3rem; background: var(--panel-2, var(--panel));
+  position: absolute; z-index: 20; left: 0; width: min(46rem, calc(100vw - 3rem)); margin-top: .3rem; background: var(--panel-2, var(--panel));
   border: 1px solid var(--border); border-radius: 9px; padding: .5rem; box-shadow: 0 8px 24px rgb(0 0 0 / .4);
 }
 .multi-panel .multi-filter { width: 100%; margin-bottom: .4rem; }
-.multi-list { max-height: 14rem; overflow-y: auto; display: flex; flex-direction: column; }
+.multi-list { max-height: 16rem; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: .1rem .5rem; align-content: start; }
+.multi-list > p { grid-column: 1 / -1; }
 .multi-item { flex-direction: row !important; align-items: center; gap: .5rem; padding: .25rem .3rem; border-radius: 6px; cursor: pointer; color: var(--text) !important; }
 .multi-item:hover { background: var(--panel); }
 .multi-item[hidden] { display: none; }
-.slider-head { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
-.slider-out { color: var(--accent); font-size: .85rem; font-variant-numeric: tabular-nums; }
-.dual { position: relative; height: 1.5rem; }
+.form .slider { gap: .5rem; padding: .35rem 0 .6rem; }
+.slider-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .15rem .75rem; }
+.slider-out { color: var(--accent); font-size: .85rem; font-variant-numeric: tabular-nums; margin-left: auto; text-align: right; }
+.dual { position: relative; height: 1.75rem; margin: .35rem .5rem 0; }
 .dual::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; background: var(--border); border-radius: 2px; }
 .dual-fill { position: absolute; top: 50%; height: 4px; margin-top: -2px; background: var(--accent); border-radius: 2px; }
 .dual input[type=range] {
@@ -306,3 +308,5 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 }
 .dual input[type=range]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--text); outline-offset: 2px; }
 .dual input[type=range]:focus-visible::-moz-range-thumb { outline: 2px solid var(--text); outline-offset: 2px; }
+@media (max-width: 900px) { .multi-panel { width: 100%; } }
+.form .types .field-label { margin-bottom: .3rem; }

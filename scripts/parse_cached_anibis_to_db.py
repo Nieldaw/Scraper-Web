@@ -36,9 +36,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--transaction-type",
         type=str,
-        default="all",
+        default="sale",
         choices=VALID_TRANSACTION_TYPES,
-        help="Filtre de type de transaction: sale|rent|unknown|all (défaut: all).",
+        help="Filtre de type de transaction: sale|rent|unknown|all (défaut: sale).",
     )
     parser.add_argument(
         "--canton",

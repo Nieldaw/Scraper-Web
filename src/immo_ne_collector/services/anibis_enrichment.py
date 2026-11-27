@@ -36,6 +36,7 @@ class EnrichmentReport:
     from_cache: int = 0
     failed: int = 0
     skipped_over_cap: int = 0
+    excluded_rent: int = 0
     stopped_reason: str | None = None
     warnings: list[str] = field(default_factory=list)
 
@@ -149,4 +150,11 @@ async def enrich_anibis_batch(
             f"{report.skipped_over_cap} annonce(s) au-delà du plafond de {cap} fiches : "
             "prix non vérifiés (page de résultats)."
         )
-    return batch.model_copy(update={"listings": out}), report
+    # Une fiche dont le prix est mensuel est une location, même si la page de résultats disait « vente ».
+    kept = [item for item in out if not item.raw_data.get("detail_price_is_rent")]
+    report.excluded_rent = len(out) - len(kept)
+    if report.excluded_rent:
+        report.warnings.append(
+            f"{report.excluded_rent} annonce(s) écartée(s) : la fiche indique un loyer (prix par mois)."
+        )
+    return batch.model_copy(update={"listings": kept, "collected_count": len(kept)}), report

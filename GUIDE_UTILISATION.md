@@ -143,6 +143,9 @@ Un mandat est une recherche enregistrée pour un prospecteur.
   - **Prix, pièces, surface** : curseurs à deux poignées. Une poignée placée à l'extrémité signifie
     « pas de limite » (le critère n'est pas enregistré).
   - **Biens actifs uniquement**.
+
+La collecte ne garde que les **ventes** : une annonce dont l'offre n'est pas « vente » (location, ou offre
+indéterminée) est rejetée, de même qu'une annonce dont la fiche indique un prix « par mois ».
 - **Consulter** : cliquer sur un mandat affiche le nombre de biens qui correspondent et leurs cartes (les
   100 premiers).
 - Aucun envoi de notification n'est fait pour l'instant : un mandat est une vue, à consulter à la demande.
