@@ -82,8 +82,9 @@ TOOLTIPS: dict[str, str] = {
     "inactive": "Plus vus sur le site depuis 7 jours : probablement vendus ou retirés.",
     "active": "Toujours en ligne, sans changement récent.",
     "q": "Cherche dans le titre, la ville et l'adresse.",
-    "city": "Nom exact de la commune (ex. Neuchâtel).",
-    "canton": "Sigle du canton sur 2 lettres : NE, VD, GE, FR, VS ou JU.",
+    "city": "Choisissez une commune parmi celles présentes dans la base.",
+    "property_type": "Appartement, maison ou terrain.",
+    "canton": "Canton romand : NE, VD, GE, FR, VS ou JU.",
     "min_price": "Prix de vente minimum, en francs suisses.",
     "max_price": "Prix de vente maximum, en francs suisses.",
     "min_rooms": "Nombre minimum de pièces (ex. 3.5).",
@@ -110,6 +111,7 @@ class PropertyFilters:
     status: str = "all"
     city: str | None = None
     canton: str | None = None
+    property_type: str | None = None
     min_price: float | None = None
     max_price: float | None = None
     min_rooms: float | None = None
@@ -135,6 +137,10 @@ def _apply_filters(query, filters: PropertyFilters):
         query = query.where(
             func.upper(Property.raw_data["detected_canton"].astext)
             == filters.canton.strip().upper()
+        )
+    if filters.property_type and filters.property_type.strip():
+        query = query.where(
+            func.lower(Property.property_type) == filters.property_type.strip().lower()
         )
     if filters.min_price is not None:
         query = query.where(Property.price_chf >= filters.min_price)

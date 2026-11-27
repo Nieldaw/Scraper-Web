@@ -9,17 +9,45 @@
   <section>
     <h2>Nouveau mandat</h2>
     {% if form %}<p class="notice notice-success">Formulaire pré-rempli d'après le bien choisi : ajustez les critères avant de créer le mandat.</p>{% endif %}
-    <form method="post" action="/mandates" class="form" hx-get="/mandates/preview" hx-trigger="load, input changed delay:300ms, change" hx-target="#match-box" hx-swap="innerHTML">
+    {# Les attributs HTMX sont sur un div parent : HTMX valide tout <form> qui déclenche une requête,
+       ce qui bloquait l'aperçu tant que le champ « Nom » (obligatoire) était vide. #}
+    <div hx-get="/mandates/preview" hx-include="find form" hx-trigger="load, input changed delay:300ms, change" hx-target="#match-box" hx-swap="innerHTML">
+    <form method="post" action="/mandates" class="form">
       <label>Nom <input name="name" required value="{{ form.get('name', '') }}"></label>
-      <label>Villes (séparées par des virgules) <input name="cities" value="{{ form.get('cities', '') }}"></label>
-      <label>Types de bien <input name="property_types" value="{{ form.get('property_types', '') }}" placeholder="apartment, house"></label>
-      <div class="row"><label>Prix min <input name="min_price_chf" value="{{ form.get('min_price_chf', '') }}" type="number"></label><label>Prix max <input name="max_price_chf" value="{{ form.get('max_price_chf', '') }}" type="number"></label></div>
-      <div class="row"><label>Pièces min <input name="min_rooms" value="{{ form.get('min_rooms', '') }}" type="number" step="0.5"></label><label>Pièces max <input name="max_rooms" value="{{ form.get('max_rooms', '') }}" type="number" step="0.5"></label></div>
-      <div class="row"><label>Surface min (m²) <input name="min_living_area_m2" value="{{ form.get('min_living_area_m2', '') }}" type="number"></label><label>Surface max (m²) <input name="max_living_area_m2" value="{{ form.get('max_living_area_m2', '') }}" type="number"></label></div>
+      <div class="field">
+        <span class="field-label" data-tip="Communes concernées. Sans sélection, toutes les villes sont acceptées." tabindex="0">Villes</span>
+        <details class="multi" data-multi>
+          <summary data-multi-label data-empty="Toutes les villes">Toutes les villes</summary>
+          <div class="multi-panel">
+            <input type="search" class="multi-filter" placeholder="Filtrer les villes…" aria-label="Filtrer les villes" autocomplete="off">
+            <div class="multi-list">
+              {% for c in cities %}<label class="check multi-item"><input type="checkbox" name="cities" value="{{ c }}" {{ "checked" if c.lower() in selected_cities }}> {{ c }}</label>
+              {% else %}<p class="muted small">Aucune ville en base pour le moment.</p>{% endfor %}
+            </div>
+          </div>
+        </details>
+      </div>
+      <fieldset class="field types">
+        <legend class="field-label" data-tip="Cochez un ou plusieurs types. Sans sélection, tous les types sont acceptés." tabindex="0">Type de bien</legend>
+        {% for value, label in options.property_types %}<label class="check"><input type="checkbox" name="property_types" value="{{ value }}" {{ "checked" if value in selected_types }}> {{ label }}</label>{% endfor %}
+      </fieldset>
+      {% for sl in sliders %}
+      <div class="field slider" data-slider data-unit="{{ sl.unit }}" data-key="{{ sl.key }}">
+        <div class="slider-head"><span class="field-label">{{ sl.label }}</span><output class="slider-out" data-out aria-live="off"></output></div>
+        <div class="dual">
+          <div class="dual-fill" data-fill></div>
+          <input type="range" data-role="min" min="{{ sl.low }}" max="{{ sl.high }}" step="{{ sl.step }}" value="{{ sl.min_value }}" aria-label="{{ sl.label }} minimum">
+          <input type="range" data-role="max" min="{{ sl.low }}" max="{{ sl.high }}" step="{{ sl.step }}" value="{{ sl.max_value }}" aria-label="{{ sl.label }} maximum">
+        </div>
+        <input type="hidden" name="{{ sl.min_name }}" data-hidden="min" value="{{ form.get(sl.min_name, '') }}">
+        <input type="hidden" name="{{ sl.max_name }}" data-hidden="max" value="{{ form.get(sl.max_name, '') }}">
+      </div>
+      {% endfor %}
       <label class="check"><input type="checkbox" name="only_active" checked> Biens actifs uniquement</label>
       <p class="match-box" id="match-box" role="status" aria-live="polite">Calcul…</p>
       <button type="submit">Créer le mandat</button>
     </form>
+    </div>
   </section>
   <section>
     <h2>Mandats existants</h2>
@@ -41,4 +69,5 @@
   {% endif %}
 </section>
 {% endif %}
+<script src="{{ url_for('static', path='mandate_form.js') }}" defer></script>
 {% endblock %}

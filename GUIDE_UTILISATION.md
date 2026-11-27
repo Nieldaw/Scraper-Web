@@ -119,7 +119,8 @@ L'API expose le même champ : `price_status` (`verified`, `estimated` ou `null`)
   - *Nouveaux* — vus pour la première fois récemment ;
   - *Modifiés* — prix ou contenu changé depuis la dernière collecte ;
   - *Plus disponible* — plus vus depuis 7 jours (réglage `INACTIVE_AFTER_DAYS`) ou retirés.
-- **Plus de filtres** : ville, canton (`NE`, `VD`…), prix min/max, pièces min, tri (récents, prix croissant ou
+- **Plus de filtres** (tous en listes déroulantes) : ville (celles présentes en base), canton (`NE`, `VD`…),
+  type de bien, prix min/max et pièces min (par paliers), tri (récents, prix croissant ou
   décroissant).
 
 L'adresse de la page garde les filtres : vous pouvez la mettre en favori ou la partager. La pagination
@@ -136,8 +137,12 @@ Le bouton **Nouveau mandat** ouvre la page *Mandats*.
 
 Un mandat est une recherche enregistrée pour un prospecteur.
 
-- **Créer** : nom (obligatoire), villes (séparées par des virgules), types de bien, prix min/max, pièces
-  min/max, surface min/max, et « Biens actifs uniquement ». Tous les critères sont facultatifs sauf le nom.
+- **Créer** : nom (obligatoire), puis des critères tous facultatifs :
+  - **Villes** : liste déroulante des villes présentes en base, avec recherche et choix multiple.
+  - **Type de bien** : cases à cocher Appartement / Maison / Terrain.
+  - **Prix, pièces, surface** : curseurs à deux poignées. Une poignée placée à l'extrémité signifie
+    « pas de limite » (le critère n'est pas enregistré).
+  - **Biens actifs uniquement**.
 - **Consulter** : cliquer sur un mandat affiche le nombre de biens qui correspondent et leurs cartes (les
   100 premiers).
 - Aucun envoi de notification n'est fait pour l'instant : un mandat est une vue, à consulter à la demande.

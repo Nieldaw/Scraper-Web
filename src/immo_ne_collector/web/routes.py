@@ -57,6 +57,12 @@ from immo_ne_collector.services.property_queries import (
     status_display,
 )
 from immo_ne_collector.services.run_diagnostics import top_level_runs
+from immo_ne_collector.services.filter_options import (
+    PRICE_STEPS,
+    ROOM_STEPS,
+    load_filter_options,
+    with_current_option,
+)
 from immo_ne_collector.services.source_config import ROMANDY_CANTONS
 
 BASE_DIR = Path(__file__).parent
@@ -91,8 +97,15 @@ def _opt_float(value: str | None) -> float | None:
         return None
 
 
-def _csv_list(value: str | None) -> list[str]:
-    return [part.strip() for part in (value or "").split(",") if part.strip()]
+def _num_str(value: float | None) -> str:
+    """Nombre normalisé pour comparer à la valeur d'une option de liste (« 300000 », « 4.5 »)."""
+    return "" if value is None else f"{value:g}" if value < 1e6 else f"{value:.0f}"
+
+
+def _csv_list(value: str | list[str] | None) -> list[str]:
+    """Accepte une liste de champs répétés (cases/listes) ou du texte séparé par des virgules."""
+    items = [value] if isinstance(value, str) else list(value or [])
+    return [part.strip() for item in items for part in item.split(",") if part.strip()]
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -124,6 +137,7 @@ async def properties_page(
     status: Annotated[str, Query(pattern="^(all|new|modified|inactive)$")] = "all",
     city: str | None = None,
     canton: str | None = None,
+    property_type: str | None = None,
     min_price: str | None = None,
     max_price: str | None = None,
     min_rooms: str | None = None,
@@ -136,11 +150,16 @@ async def properties_page(
         status=status,
         city=city,
         canton=canton,
+        property_type=property_type,
         min_price=_opt_float(min_price),
         max_price=_opt_float(max_price),
         min_rooms=_opt_float(min_rooms),
         unprocessed=bool(unprocessed),
         sort=sort,
+    )
+    # Requête HTMX (filtre/pagination) : on ne renvoie que la grille.
+    is_fragment = (
+        request.headers.get("HX-Request") == "true" and request.headers.get("HX-Boosted") != "true"
     )
     rows, total = await search_properties(session, filters, page=page, page_size=PAGE_SIZE)
     context = {
@@ -153,17 +172,26 @@ async def properties_page(
             "status": status,
             "city": city or "",
             "canton": canton or "",
-            "min_price": min_price or "",
-            "max_price": max_price or "",
-            "min_rooms": min_rooms or "",
+            "property_type": property_type or "",
+            "min_price": _num_str(filters.min_price),
+            "max_price": _num_str(filters.max_price),
+            "min_rooms": _num_str(filters.min_rooms),
             "unprocessed": "1" if unprocessed else "",
             "sort": sort,
         },
         "status_tabs": STATUS_TABS,
     }
+    if not is_fragment:
+        options = await load_filter_options(session)
+        context.update(
+            options=options,
+            cities=with_current_option(options.cities, city or None),
+            min_price_steps=with_current_option(list(PRICE_STEPS), filters.min_price),
+            max_price_steps=with_current_option(list(PRICE_STEPS), filters.max_price),
+            room_steps=with_current_option(list(ROOM_STEPS), filters.min_rooms),
+        )
     context["qs"] = urlencode({k: v for k, v in context["filters"].items() if v})
-    # Requête HTMX (filtre/pagination) : on ne renvoie que la grille.
-    if request.headers.get("HX-Request") == "true" and request.headers.get("HX-Boosted") != "true":
+    if is_fragment:
         return _render(request, "_property_grid.html", "properties", **context)
     return _render(request, "properties.html", "properties", **context)
 
@@ -232,10 +260,18 @@ async def mandates_page(
         )
         order = {pid: i for i, pid in enumerate(ids)}
         matches = [property_to_out(r) for r in sorted(rows, key=lambda r: order[r.id])]
+    options = await load_filter_options(session)
+    form_cities = _csv_list(form.get("cities"))
     return _render(
         request,
         "mandates.html",
         "mandates",
+        options=options,
+        # une ville préremplie absente de la liste reste sélectionnable
+        cities=sorted({*options.cities, *form_cities}, key=str.lower),
+        selected_cities={c.lower() for c in form_cities},
+        selected_types={t.lower() for t in _csv_list(form.get("property_types"))},
+        sliders=_sliders(options, form),
         mandates=mandates,
         form=form,
         selected=selected_mandate,
@@ -244,10 +280,38 @@ async def mandates_page(
     )
 
 
+def _sliders(options, form: dict[str, str]) -> list[dict]:
+    """Description des trois curseurs doubles ; les bornes englobent les valeurs préremplies."""
+    specs = (
+        ("price", "Prix", "min_price_chf", "max_price_chf", options.price, " CHF"),
+        ("rooms", "Pièces", "min_rooms", "max_rooms", options.rooms, ""),
+        ("area", "Surface", "min_living_area_m2", "max_living_area_m2", options.area, " m²"),
+    )
+    result = []
+    for key, label, min_name, max_name, bounds, unit in specs:
+        lo, hi = _opt_float(form.get(min_name)), _opt_float(form.get(max_name))
+        bounds = bounds.including(lo, hi)
+        result.append(
+            {
+                "key": key,
+                "label": label,
+                "unit": unit,
+                "min_name": min_name,
+                "max_name": max_name,
+                "low": bounds.low,
+                "high": bounds.high,
+                "step": bounds.step,
+                "min_value": bounds.low if lo is None else lo,
+                "max_value": bounds.high if hi is None else hi,
+            }
+        )
+    return result
+
+
 def _criteria_from_form(
     *,
-    cities: str | None,
-    property_types: str | None,
+    cities: list[str] | str | None,
+    property_types: list[str] | str | None,
     min_price_chf: str | None,
     max_price_chf: str | None,
     min_rooms: str | None,
@@ -275,8 +339,8 @@ def _criteria_from_form(
 @router.get("/mandates/preview", response_class=HTMLResponse)
 async def mandate_preview(
     session: SessionDep,
-    cities: str | None = None,
-    property_types: str | None = None,
+    cities: Annotated[list[str] | None, Query()] = None,
+    property_types: Annotated[list[str] | None, Query()] = None,
     min_price_chf: str | None = None,
     max_price_chf: str | None = None,
     min_rooms: str | None = None,
@@ -309,8 +373,8 @@ async def mandate_preview(
 async def create_mandate_form(
     session: SessionDep,
     name: Annotated[str, Form()],
-    cities: Annotated[str | None, Form()] = None,
-    property_types: Annotated[str | None, Form()] = None,
+    cities: Annotated[list[str] | None, Form()] = None,
+    property_types: Annotated[list[str] | None, Form()] = None,
     min_price_chf: Annotated[str | None, Form()] = None,
     max_price_chf: Annotated[str | None, Form()] = None,
     min_rooms: Annotated[str | None, Form()] = None,
