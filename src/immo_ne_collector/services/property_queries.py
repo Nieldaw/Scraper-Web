@@ -66,6 +66,7 @@ class PropertyFilters:
     min_price: float | None = None
     max_price: float | None = None
     min_rooms: float | None = None
+    unprocessed: bool = False
     sort: str = "recent"
 
 
@@ -94,6 +95,8 @@ def _apply_filters(query, filters: PropertyFilters):
         query = query.where(Property.price_chf <= filters.max_price)
     if filters.min_rooms is not None:
         query = query.where(Property.rooms >= filters.min_rooms)
+    if filters.unprocessed:
+        query = query.where(Property.is_processed.is_(False))
     return query
 
 

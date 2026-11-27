@@ -214,3 +214,11 @@ dans cette version.
 Pour un site que la collecte automatique ne peut pas lire (Homegate, ImmoScout24…) : ouvrez la page de
 résultats dans votre navigateur, enregistrez-la (`Ctrl+S`), puis dans **Configuration → Importer une page HTML**
 choisissez la source, le canton et le fichier. Seules les annonces de **vente** sont conservées.
+
+## Historique et statut « traité »
+
+- **Historique :** chaque fois qu'une collecte constate un changement de prix, de titre ou d'agence, une ligne est
+  ajoutée à la *timeline* en bas de la fiche du bien.
+- **Traité :** le bouton « Marquer comme traité » (fiche du bien) retire le bien de la liste lorsque vous cochez
+  **Non traités** dans les filtres de la page Propriétés.
+- Après une mise à jour du code, lancez `make migrate` pour créer la table d'historique et le champ « traité ».

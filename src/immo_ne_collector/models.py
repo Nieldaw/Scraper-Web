@@ -2,7 +2,16 @@ import uuid
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +56,9 @@ class Property(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     last_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     status: Mapped[str] = mapped_column(String(30), default=PropertyStatus.NEW, index=True)
+    is_processed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), index=True
+    )
     needs_completion: Mapped[bool] = mapped_column(Boolean, default=False)
     completion_reason: Mapped[str | None] = mapped_column(String(120))
     sitn_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -59,6 +71,22 @@ class Property(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
     listings: Mapped[list["SourceListing"]] = relationship(back_populates="property")
+
+
+class PropertyHistory(Base):
+    """Une ligne par changement détecté (prix, titre, agence) d'un bien."""
+
+    __tablename__ = "property_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("properties.id", ondelete="CASCADE"), index=True
+    )
+    field: Mapped[str] = mapped_column(String(40))  # price | title | agency
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(String(100))
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class SourceListing(Base):

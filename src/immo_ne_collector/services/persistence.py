@@ -15,10 +15,17 @@ from immo_ne_collector.services.deduplication import (
     decide_property_match,
 )
 from immo_ne_collector.services.normalization import NormalizedListing
+from immo_ne_collector.services.property_history import (
+    add_history_rows,
+    diff_tracked_fields,
+    extract_agency_name,
+)
 from immo_ne_collector.services.sitn import assess_sitn_eligibility
-from immo_ne_collector.services.source_config import infer_detected_canton, normalize_detected_canton
+from immo_ne_collector.services.source_config import (
+    infer_detected_canton,
+    normalize_detected_canton,
+)
 from immo_ne_collector.services.statuses import detect_changed_fields
-
 
 TRACKED_CHANGE_FIELDS = ("title", "price_chf", "rooms", "living_area_m2", "description")
 
@@ -332,6 +339,23 @@ async def _persist_one_listing(
     existing_source.raw_data = dict(listing.raw_data)
     existing_source.last_seen_at = now
     existing_source.collected_at = now
+
+    history_changes = diff_tracked_fields(
+        old_price=property_row.price_chf,
+        new_price=listing.price_chf,
+        old_title=property_row.title,
+        new_title=listing.title,
+        old_agency=extract_agency_name(property_row.raw_data),
+        new_agency=extract_agency_name(listing.raw_data),
+    )
+    if history_changes:
+        add_history_rows(
+            session,
+            property_id=property_row.id,
+            changes=history_changes,
+            changed_at=now,
+            source=batch_source,
+        )
 
     property_row.title = listing.title
     property_row.property_type = listing.property_type

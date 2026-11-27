@@ -19,6 +19,11 @@
     <dt>Type</dt><dd>{{ item.property_type or "–" }}</dd>
     <dt>Vu pour la 1<sup>re</sup> fois</dt><dd>{{ item.first_seen_at.strftime("%d.%m.%Y") }}</dd>
     <dt>Dernière vue</dt><dd>{{ item.last_seen_at.strftime("%d.%m.%Y") }}</dd>
+    <dt>Traitement</dt><dd>{% if item.is_processed %}<span class="pstat pstat-verified">✓ traité</span>{% else %}<span class="muted">non traité</span>{% endif %}
+      <form method="post" action="/properties/{{ item.id }}/processed" class="inline-form">
+        <input type="hidden" name="processed" value="{{ 0 if item.is_processed else 1 }}">
+        <button type="submit" class="btn-small">{{ "Marquer comme non traité" if item.is_processed else "Marquer comme traité" }}</button>
+      </form></dd>
     <dt>SITN</dt><dd>{{ item.sitn_status or "–" }}{% if sitn_url %} — <a href="{{ sitn_url }}" rel="noopener noreferrer">lien</a>{% endif %}</dd>
   </dl>
 </div>
@@ -38,4 +43,19 @@
   {% endfor %}
   </tbody>
 </table>
+<h2>Historique des modifications</h2>
+{% if history %}
+<ol class="timeline">
+  {% for h in history %}
+  <li>
+    <time>{{ h.changed_at.strftime("%d.%m.%Y %H:%M") }}</time>
+    <span class="tl-field">{{ field_labels.get(h.field, h.field) }}</span>
+    <span class="tl-old">{{ h.old_value or "–" }}</span> → <span class="tl-new">{{ h.new_value or "–" }}</span>
+    {% if h.source %}<span class="muted small">({{ h.source }})</span>{% endif %}
+  </li>
+  {% endfor %}
+</ol>
+{% else %}
+<p class="muted">Aucune modification détectée depuis la première collecte.</p>
+{% endif %}
 {% endblock %}

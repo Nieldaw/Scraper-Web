@@ -15,6 +15,7 @@ from immo_ne_collector.api.routes import mandate_create_to_criteria, property_to
 from immo_ne_collector.db import get_session
 from immo_ne_collector.models import DailyRun, Property
 from immo_ne_collector.schemas import SearchMandateCreate
+from immo_ne_collector.services.property_history import FIELD_LABELS, list_history
 from immo_ne_collector.services.html_import import (
     IMPORT_SOURCES,
     HtmlImportError,
@@ -114,6 +115,7 @@ async def properties_page(
     min_price: str | None = None,
     max_price: str | None = None,
     min_rooms: str | None = None,
+    unprocessed: str | None = None,
     sort: Annotated[str, Query(pattern=f"^({'|'.join(SORTS)})$")] = "recent",
     page: Annotated[int, Query(ge=1)] = 1,
 ):
@@ -125,6 +127,7 @@ async def properties_page(
         min_price=_opt_float(min_price),
         max_price=_opt_float(max_price),
         min_rooms=_opt_float(min_rooms),
+        unprocessed=bool(unprocessed),
         sort=sort,
     )
     rows, total = await search_properties(session, filters, page=page, page_size=PAGE_SIZE)
@@ -141,6 +144,7 @@ async def properties_page(
             "min_price": min_price or "",
             "max_price": max_price or "",
             "min_rooms": min_rooms or "",
+            "unprocessed": "1" if unprocessed else "",
             "sort": sort,
         },
         "status_tabs": STATUS_TABS,
@@ -165,7 +169,21 @@ async def property_detail(property_id: UUID, request: Request, session: SessionD
         item=property_to_out(row),
         listings=listings,
         sitn_url=row.sitn_url,
+        history=await list_history(session, property_id),
+        field_labels=FIELD_LABELS,
     )
+
+
+@router.post("/properties/{property_id}/processed")
+async def toggle_processed(
+    property_id: UUID, session: SessionDep, processed: Annotated[str, Form()] = "1"
+):
+    row = await get_property(session, property_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Bien introuvable")
+    row.is_processed = processed == "1"
+    await session.commit()
+    return RedirectResponse(f"/properties/{property_id}", status_code=303)
 
 
 @router.get("/mandates", response_class=HTMLResponse)

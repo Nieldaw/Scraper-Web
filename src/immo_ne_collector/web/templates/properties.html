@@ -24,6 +24,7 @@
       <input type="number" name="min_price" value="{{ filters.min_price }}" placeholder="Prix min (CHF)">
       <input type="number" name="max_price" value="{{ filters.max_price }}" placeholder="Prix max (CHF)">
       <input type="number" step="0.5" name="min_rooms" value="{{ filters.min_rooms }}" placeholder="Pièces min">
+      <label class="check"><input type="checkbox" name="unprocessed" value="1" {{ "checked" if filters.unprocessed }}> Non traités</label>
       <select name="sort" aria-label="Tri">
         <option value="recent" {{ "selected" if filters.sort == "recent" }}>Plus récents</option>
         <option value="price_asc" {{ "selected" if filters.sort == "price_asc" }}>Prix croissant</option>

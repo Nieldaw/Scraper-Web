@@ -59,6 +59,7 @@ def property_to_out(row: Property) -> PropertyOut:
         image_url=extract_image_url(row.raw_data),
         price_status=price_status_of(row.raw_data),
         price_status_label=PRICE_STATUS_LABELS.get(price_status_of(row.raw_data) or ""),
+        is_processed=bool(row.is_processed),
         first_seen_at=row.first_seen_at,
         last_seen_at=row.last_seen_at,
         last_changed_at=row.last_changed_at,
@@ -89,6 +90,7 @@ async def list_properties(
     min_price: Annotated[float | None, Query(ge=0)] = None,
     max_price: Annotated[float | None, Query(ge=0)] = None,
     min_rooms: Annotated[float | None, Query(ge=0)] = None,
+    unprocessed: bool = False,
     sort: Annotated[str, Query(pattern=f"^({'|'.join(SORTS)})$")] = "recent",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 24,
@@ -101,6 +103,7 @@ async def list_properties(
         min_price=min_price,
         max_price=max_price,
         min_rooms=min_rooms,
+        unprocessed=unprocessed,
         sort=sort,
     )
     return await _list(session, filters, page, page_size)
