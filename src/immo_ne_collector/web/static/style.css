@@ -314,3 +314,18 @@ body .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-colo
 /* --- page Coûts Apify -------------------------------------------------------------------- */
 .costs h2 { margin: 2rem 0 .75rem; }
 .costs table { display: table; }
+
+/* --- page Prospection ------------------------------------------------------------------ */
+.prosp-tabs { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem; }
+.prosp-tabs .tab { text-decoration: none; cursor: pointer; }
+.prosp-tabs .tab.is-active > span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.prosp-tabs .tab.is-active .muted { color: inherit; }
+.prosp-tabs .tab > span { display: inline-block; padding: .45rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text); }
+.draft { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.2rem; margin-bottom: 1rem; }
+.draft-sent { opacity: .75; }
+.draft-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+.draft-head h2 { margin: 0 0 .2rem; font-size: 1.05rem; }
+.draft-text { white-space: pre-wrap; word-break: break-word; font: inherit; line-height: 1.55; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: .9rem 1rem; margin: .8rem 0; }
+.draft-actions { display: flex; flex-wrap: wrap; gap: .6rem; }
+.status-draft-validated { background: #243a1a; color: var(--accent); }
+.status-draft-sent { background: var(--accent); color: var(--accent-ink); }

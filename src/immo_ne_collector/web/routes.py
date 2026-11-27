@@ -15,18 +15,9 @@ from immo_ne_collector.api.routes import mandate_create_to_criteria, property_to
 from immo_ne_collector.db import get_session
 from immo_ne_collector.models import DailyRun, Property
 from immo_ne_collector.schemas import SearchMandateCreate
+from immo_ne_collector.services import prospection as drafts_service
 from immo_ne_collector.services.amenities import extract_amenities
-from immo_ne_collector.services.images import extract_image_urls
-from immo_ne_collector.services.property_history import (
-    FIELD_LABELS,
-    extract_agency_name,
-    list_history,
-)
-from immo_ne_collector.services.html_import import (
-    IMPORT_SOURCES,
-    HtmlImportError,
-    import_html_page,
-)
+from immo_ne_collector.services.apify_costs import LOCAL_TZ, format_usd, load_costs_overview
 from immo_ne_collector.services.collection_jobs import (
     DISABLED_SOURCES,
     ENABLED_SOURCES,
@@ -38,32 +29,42 @@ from immo_ne_collector.services.collection_jobs import (
     running_collection,
     validate_request,
 )
-from immo_ne_collector.services.mandates import (
-    count_matching_properties,
-    prefill_from_property,
-    apply_search_mandate,
-    create_search_mandate,
-    list_search_mandates,
-)
-from immo_ne_collector.services.property_queries import (
-    MAX_PAGE_SIZE,
-    SORTS,
-    PropertyFilters,
-    count_by_status,
-    get_property,
-    search_properties,
-    TOOLTIPS,
-    sitn_status_label,
-    status_display,
-)
-from immo_ne_collector.services.run_diagnostics import top_level_runs
-from immo_ne_collector.services.apify_costs import LOCAL_TZ, format_usd, load_costs_overview
 from immo_ne_collector.services.filter_options import (
     PRICE_STEPS,
     ROOM_STEPS,
     load_filter_options,
     with_current_option,
 )
+from immo_ne_collector.services.html_import import (
+    IMPORT_SOURCES,
+    HtmlImportError,
+    import_html_page,
+)
+from immo_ne_collector.services.images import extract_image_urls
+from immo_ne_collector.services.mandates import (
+    apply_search_mandate,
+    count_matching_properties,
+    create_search_mandate,
+    list_search_mandates,
+    prefill_from_property,
+)
+from immo_ne_collector.services.property_history import (
+    FIELD_LABELS,
+    extract_agency_name,
+    list_history,
+)
+from immo_ne_collector.services.property_queries import (
+    MAX_PAGE_SIZE,
+    SORTS,
+    TOOLTIPS,
+    PropertyFilters,
+    count_by_status,
+    get_property,
+    search_properties,
+    sitn_status_label,
+    status_display,
+)
+from immo_ne_collector.services.run_diagnostics import top_level_runs
 from immo_ne_collector.services.source_config import ROMANDY_CANTONS
 
 BASE_DIR = Path(__file__).parent
@@ -552,6 +553,45 @@ async def settings_import(
         running=await running_collection(session) is not None,
         **context,
     )
+
+
+@router.get("/prospection", response_class=HTMLResponse)
+async def prospection_page(
+    request: Request,
+    session: SessionDep,
+    status: Annotated[str, Query(pattern="^(all|draft|validated|sent)$")] = "all",
+):
+    drafts = await drafts_service.list_drafts(session, status)
+    return _render(
+        request,
+        "prospection.html",
+        "prospection",
+        drafts=drafts,
+        counts=await drafts_service.count_by_status(session),
+        tabs=drafts_service.STATUS_TABS,
+        status=status,
+        labels=drafts_service.STATUS_LABELS,
+        transitions=drafts_service.ALLOWED_TRANSITIONS,
+    )
+
+
+@router.post("/prospection/{draft_id}/status")
+async def prospection_set_status(
+    draft_id: UUID,
+    session: SessionDep,
+    status: Annotated[str, Form()],
+    back: Annotated[str, Form()] = "all",
+):
+    try:
+        draft = await drafts_service.set_draft_status(session, draft_id, status)
+    except drafts_service.InvalidTransition as exc:
+        raise HTTPException(
+            status_code=409, detail=f"Changement de statut impossible ({exc})"
+        ) from exc
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Brouillon introuvable")
+    target = back if back in drafts_service.STATUS_LABELS else "all"
+    return RedirectResponse(f"/prospection?status={target}", status_code=303)
 
 
 @router.get("/costs", response_class=HTMLResponse)

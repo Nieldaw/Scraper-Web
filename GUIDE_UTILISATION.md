@@ -239,3 +239,13 @@ choisissez la source, le canton et le fichier. Seules les annonces de **vente** 
   geo.admin.ch pour placer la carte. Pour les biens déjà en base : `python -m immo_ne_collector.services.geocoding`.
   Désactivable avec `GEOCODING_ENABLED=false`.
 - **Infobulles :** survolez (ou sélectionnez au clavier) les statuts, onglets et filtres pour une explication.
+
+## Prospection (`/prospection`)
+
+La page liste les brouillons d'e-mails de la table `email_drafts` (alimentée par votre propre script).
+**Rien n'est envoyé depuis l'application** : vous relisez le texte, vous envoyez l'e-mail vous-même, puis
+vous cliquez sur **Marquer comme envoyé**.
+
+- Statuts : *Brouillon* → *Validé* → *Envoyé*. Un brouillon envoyé n'est plus modifiable.
+- Boutons : **Valider**, **Remettre en brouillon**, **Marquer comme envoyé** (date d'envoi enregistrée).
+- Les onglets filtrent par statut ; un brouillon disparaît avec son bien.

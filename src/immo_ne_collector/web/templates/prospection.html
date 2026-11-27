@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Prospection – Immo Collector{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>Prospection</h1>
+  <p class="muted">Brouillons d'e-mails générés par votre script. Relisez-les : rien n'est envoyé d'ici, vous envoyez vous-même puis marquez le brouillon comme envoyé.</p>
+</header>
+
+<div class="tabs prosp-tabs" role="navigation" aria-label="Statut des brouillons">
+  {% for value, label in tabs %}
+  <a class="tab {{ 'is-active' if status == value }}" href="/prospection?status={{ value }}"><span>{{ label }} <span class="muted">({{ counts.get(value, 0) }})</span></span></a>
+  {% endfor %}
+</div>
+
+{% for d in drafts %}
+{% set p = d.property %}
+<article class="draft draft-{{ d.status }}">
+  <header class="draft-head">
+    <div>
+      <h2><a href="/properties/{{ p.id }}">{{ p.title or "Sans titre" }}</a></h2>
+      <p class="muted small">{{ [p.postal_code, p.city] | select | join(" ") or "Adresse inconnue" }}
+        {% if p.price_chf is not none %} · CHF {{ "{:,.0f}".format(p.price_chf).replace(",", "'") }}{% endif %}
+        · généré le {{ d.created_at.strftime("%d.%m.%Y %H:%M") }}
+        {% if d.sent_at %}· envoyé le {{ d.sent_at.strftime("%d.%m.%Y %H:%M") }}{% endif %}</p>
+    </div>
+    <span class="status status-draft-{{ d.status }}">{{ labels.get(d.status, d.status) }}</span>
+  </header>
+  <pre class="draft-text">{{ d.generated_text }}</pre>
+  <div class="draft-actions">
+    {% for target, text, cls in (("validated", "Valider", "btn-small"), ("draft", "Remettre en brouillon", "btn-small"), ("sent", "Marquer comme envoyé", "btn-primary")) %}
+    {% if target in transitions.get(d.status, []) %}
+    <form method="post" action="/prospection/{{ d.id }}/status" class="inline-form">
+      <input type="hidden" name="status" value="{{ target }}">
+      <input type="hidden" name="back" value="{{ status }}">
+      <button type="submit" class="{{ cls }}">{{ text }}</button>
+    </form>
+    {% endif %}
+    {% endfor %}
+  </div>
+</article>
+{% else %}
+<p class="empty">{% if counts.get("all", 0) == 0 %}Aucun brouillon pour le moment. Ils apparaîtront ici dès que votre script les aura enregistrés dans <code>email_drafts</code>.{% else %}Aucun brouillon dans cette catégorie.{% endif %}</p>
+{% endfor %}
+{% endblock %}

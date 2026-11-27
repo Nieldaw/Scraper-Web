@@ -105,6 +105,29 @@ class ApifyUsage(Base):
     status: Mapped[str] = mapped_column(String(40))  # ex. SUCCEEDED, FAILED, ABORTED, TIMED-OUT
 
 
+class EmailDraftStatus(StrEnum):
+    DRAFT = "draft"  # généré, à relire
+    VALIDATED = "validated"  # relu et approuvé à la main
+    SENT = "sent"  # envoyé manuellement par l'utilisateur
+
+
+class EmailDraft(Base):
+    """Brouillon d'e-mail de contact pour un bien. Jamais envoyé automatiquement."""
+
+    __tablename__ = "email_drafts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    property_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("properties.id", ondelete="CASCADE"), index=True
+    )
+    generated_text: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default=EmailDraftStatus.DRAFT, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    property: Mapped["Property"] = relationship()
+
+
 class SourceListing(Base):
     __tablename__ = "source_listings"
     __table_args__ = (
